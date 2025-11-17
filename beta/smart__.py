@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import functools
 import hashlib
 import html
 import json
@@ -21,7 +22,7 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Sequence, Union
@@ -30,6 +31,7 @@ import anthropic
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.syntax import Syntax
 from rich.table import Table
 
@@ -95,6 +97,40 @@ class Finding:
             cwe=str(d.get("cwe", "N/A")),
             line_number=d.get("line_number"),
         )
+
+
+@dataclass(slots=True)
+class CostTracker:
+    """Tracks API usage and costs."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    api_calls: int = 0
+    cache_hits: int = 0
+    
+    def add_usage(self, input_tokens: int, output_tokens: int, cached: bool = False) -> None:
+        """Record API usage."""
+        if cached:
+            self.cache_hits += 1
+        else:
+            self.input_tokens += input_tokens
+            self.output_tokens += output_tokens
+            self.api_calls += 1
+    
+    def estimate_cost(self, model: str) -> float:
+        """Estimate cost based on model pricing."""
+        from common import estimate_api_cost
+        return estimate_api_cost(self.input_tokens, self.output_tokens, model)
+    
+    def summary(self, model: str) -> Dict[str, Any]:
+        """Return summary statistics."""
+        return {
+            "api_calls": self.api_calls,
+            "cache_hits": self.cache_hits,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.input_tokens + self.output_tokens,
+            "estimated_cost_usd": self.estimate_cost(model),
+        }
 
 
 @dataclass(slots=True)
@@ -304,8 +340,43 @@ def scan_repo_files(
 
 
 # ---------- Core Analyzer ----------
+def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 60.0):
+    """Decorator for retrying API calls with exponential backoff."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except anthropic.APIStatusError as e:
+                    last_exception = e
+                    # Don't retry on client errors (4xx)
+                    if 400 <= e.status_code < 500:
+                        raise
+                    # Retry on server errors (5xx) and rate limits (429)
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        if e.status_code == 429:
+                            delay = max(delay, 5.0)  # Longer delay for rate limits
+                        time.sleep(delay)
+                    else:
+                        raise
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        time.sleep(delay)
+                    else:
+                        raise
+            if last_exception:
+                raise last_exception
+        return wrapper
+    return decorator
+
+
 class SmartAnalyzer:
-    def __init__(self, console: Console, client: anthropic.Anthropic, cache: CacheManager, *, model: str, default_max_tokens: int, temperature: float, repo_root: Optional[Path] = None):
+    def __init__(self, console: Console, client: anthropic.Anthropic, cache: CacheManager, *, model: str, default_max_tokens: int, temperature: float, repo_root: Optional[Path] = None, max_retries: int = 3):
         self.console = console
         self.client = client
         self.cache = cache
@@ -313,6 +384,20 @@ class SmartAnalyzer:
         self.default_max_tokens = default_max_tokens
         self.temperature = temperature
         self.repo_root = repo_root
+        self.max_retries = max_retries
+        self.cost_tracker = CostTracker()
+
+    def _call_claude_api(self, prompt: str, max_tokens: int) -> anthropic.types.Message:
+        """Make API call with retry logic."""
+        @retry_with_backoff(max_retries=self.max_retries, base_delay=1.0, max_delay=60.0)
+        def _make_call():
+            return self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+            )
+        return _make_call()
 
     def _call_claude(
         self, stage: str, file: Optional[str], prompt: str, max_tokens: int = 4000,
@@ -326,18 +411,32 @@ class SmartAnalyzer:
         cached = self.cache.get(stage, file, prompt, repo_path=repo_path, model=self.model)
         if cached:
             self.console.print(f"[dim]Cache hit for {stage} ({file or 'n/a'})[/dim]")
+            self.cost_tracker.add_usage(0, 0, cached=True)
             return cached.raw_response
+        
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-            )
+            response = self._call_claude_api(prompt, max_tokens)
             raw = response.content[0].text if response.content else ""
+            
+            # Track token usage from API response
+            if hasattr(response, 'usage') and response.usage:
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+            else:
+                # Fallback: estimate tokens (rough approximation: 1 token ≈ 4 chars)
+                input_tokens = len(prompt) // 4
+                output_tokens = len(raw) // 4
+            
+            self.cost_tracker.add_usage(input_tokens, output_tokens, cached=False)
+            
             parsed = parse_json_response(raw)
             self.cache.save(stage, file, prompt, raw, parsed, repo_path=repo_path, model=self.model)
             return raw
+        except anthropic.APIStatusError as e:
+            if e.status_code == 429:
+                self.console.print(f"[yellow]Rate limit hit. Retrying with backoff...[/yellow]")
+            self.console.print(f"[red]API Error ({e.status_code}): {e}[/red]")
+            return None
         except Exception as e:
             self.console.print(f"[red]API Error: {e}[/red]")
             return None
@@ -376,78 +475,97 @@ class SmartAnalyzer:
     ) -> List[Finding]:
         self.console.print("\n[bold]Stage 2: Deep Dive[/bold]")
         findings: List[Finding] = []
-        for i, file_path in enumerate(files, 1):
-            self.console.print(f"[[bold]{i}/{len(files)}[/bold]] Analyzing {file_path.name}...")
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="replace")
-                lines = content.splitlines()
-            except OSError as e:
-                self.console.print(f"  [red]Error reading {file_path}: {e}[/red]")
-                continue
-
-            if file_path.suffix.lower() in YAML_EXTS:
-                prompt = PromptFactory.deep_dive_yaml(file_path, content, question)
-            elif file_path.suffix.lower() in HELM_EXTS or "templates" in file_path.parts:
-                prompt = PromptFactory.deep_dive_helm(file_path, content, question)
-            else:
-                prompt = PromptFactory.deep_dive(file_path, content, question)
-
-            raw = self._call_claude("deep_dive", str(file_path), prompt, repo_path=str(Path(file_path).anchor or Path.cwd()))
-            if not raw:
-                continue
-            if debug:
-                self.console.print(Panel(raw, title=f"RAW API RESPONSE ({file_path.name})"))
-
-            parsed = parse_json_response(raw)
-            if parsed and isinstance(parsed.get("insights"), list):
-                relevance = str(parsed.get("relevance", "N/A"))
-                if threshold and relevance not in ("HIGH", threshold):
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=self.console,
+            transient=False,
+        ) as progress:
+            task = progress.add_task(f"[cyan]Analyzing {len(files)} files...", total=len(files))
+            
+            for i, file_path in enumerate(files, 1):
+                progress.update(task, description=f"[cyan]Analyzing {file_path.name}...")
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                    lines = content.splitlines()
+                except OSError as e:
+                    self.console.print(f"  [red]Error reading {file_path}: {e}[/red]")
+                    progress.advance(task)
                     continue
 
-                file_insights: Sequence[dict] = parsed["insights"]
-                self.console.print(f"   Relevance: {relevance}, Found: {len(file_insights)} insights")
-                for ins in file_insights:
-                    findings.append(Finding.from_dict(ins, str(file_path), relevance))
+                if file_path.suffix.lower() in YAML_EXTS:
+                    prompt = PromptFactory.deep_dive_yaml(file_path, content, question)
+                elif file_path.suffix.lower() in HELM_EXTS or "templates" in file_path.parts:
+                    prompt = PromptFactory.deep_dive_helm(file_path, content, question)
+                else:
+                    prompt = PromptFactory.deep_dive(file_path, content, question)
 
-                    if verbose:
-                        line_num_val = ins.get("line_number")
-                        code_line_printed = False
-                        try:
-                            # Attempt to parse line number, forgiving str/int mismatch from AI
-                            if line_num_val is not None:
-                                line_num_int = int(line_num_val)
-                                if 0 < line_num_int <= len(lines):
-                                    code_line = lines[line_num_int - 1]
+                raw = self._call_claude("deep_dive", str(file_path), prompt, repo_path=str(Path(file_path).anchor or Path.cwd()))
+                if not raw:
+                    progress.advance(task)
+                    continue
+                if debug:
+                    self.console.print(Panel(raw, title=f"RAW API RESPONSE ({file_path.name})"))
 
-                                    # Only print the code line if it contains non-whitespace chars
-                                    if code_line.strip():
-                                        lexer = "java" if file_path.suffix == ".java" else "python"
-                                        self.console.print(
-                                            Syntax(
-                                                code_line,
-                                                lexer,
-                                                theme="monokai",
-                                                line_numbers=True,
-                                                start_line=line_num_int,
+                parsed = parse_json_response(raw)
+                if parsed and isinstance(parsed.get("insights"), list):
+                    relevance = str(parsed.get("relevance", "N/A"))
+                    if threshold and relevance not in ("HIGH", threshold):
+                        progress.advance(task)
+                        continue
+
+                    file_insights: Sequence[dict] = parsed["insights"]
+                    self.console.print(f"   Relevance: {relevance}, Found: {len(file_insights)} insights")
+                    for ins in file_insights:
+                        findings.append(Finding.from_dict(ins, str(file_path), relevance))
+
+                        if verbose:
+                            line_num_val = ins.get("line_number")
+                            code_line_printed = False
+                            try:
+                                # Attempt to parse line number, forgiving str/int mismatch from AI
+                                if line_num_val is not None:
+                                    line_num_int = int(line_num_val)
+                                    if 0 < line_num_int <= len(lines):
+                                        code_line = lines[line_num_int - 1]
+
+                                        # Only print the code line if it contains non-whitespace chars
+                                        if code_line.strip():
+                                            lexer = "java" if file_path.suffix == ".java" else "python"
+                                            self.console.print(
+                                                Syntax(
+                                                    code_line,
+                                                    lexer,
+                                                    theme="monokai",
+                                                    line_numbers=True,
+                                                    start_line=line_num_int,
+                                                )
                                             )
-                                        )
-                                    else:
-                                        self.console.print(
-                                            f"[dim]   (Line {line_num_int} is empty)[/dim]"
-                                        )
-                                    code_line_printed = True
-                        except (ValueError, TypeError):
-                            # Fail gracefully if line number is not a valid int
-                            pass
+                                        else:
+                                            self.console.print(
+                                                f"[dim]   (Line {line_num_int} is empty)[/dim]"
+                                            )
+                                        code_line_printed = True
+                            except (ValueError, TypeError):
+                                # Fail gracefully if line number is not a valid int
+                                pass
 
-                        finding_text = f"     Finding: {ins.get('finding')} (Impact: {ins.get('impact')}, CWE: {ins.get('cwe')})"
-                        # Adjust indentation if no code line was printed
-                        if not code_line_printed:
-                            finding_text = finding_text.lstrip()
+                            finding_text = f"     Finding: {ins.get('finding')} (Impact: {ins.get('impact')}, CWE: {ins.get('cwe')})"
+                            # Adjust indentation if no code line was printed
+                            if not code_line_printed:
+                                finding_text = finding_text.lstrip()
 
-                        self.console.print(finding_text)
-                        self.console.print("")  # Add vertical space for readability
-            time.sleep(1)
+                            self.console.print(finding_text)
+                            self.console.print("")  # Add vertical space for readability
+                
+                progress.advance(task)
+                time.sleep(0.5)  # Reduced delay since we have progress bar
+        
         self.console.print(f"\n[green]✓ Deep dive complete. Found {len(findings)} total insights.[/green]")
         return findings
 
@@ -974,6 +1092,7 @@ def create_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=CLAUDE_MODEL, help="Override Claude model identifier")
     p.add_argument("--max-tokens", type=int, default=4000, help="Max tokens per response")
     p.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0.0 determinism)")
+    p.add_argument("--max-retries", type=int, default=3, help="Max retries for API calls with exponential backoff")
     p.add_argument(
         "--top-n", type=int, default=5, help="Number of items for payload/annotation generation"
     )
@@ -1115,7 +1234,14 @@ def main() -> None:
     api_key = get_api_key()
     client = anthropic.Anthropic(api_key=api_key)
     cache = CacheManager(args.cache_dir, use_cache=not args.no_cache)
-    analyzer = SmartAnalyzer(console, client, cache, model=args.model, default_max_tokens=args.max_tokens, temperature=args.temperature, repo_root=None)
+    analyzer = SmartAnalyzer(
+        console, client, cache, 
+        model=args.model, 
+        default_max_tokens=args.max_tokens, 
+        temperature=args.temperature, 
+        repo_root=None,
+        max_retries=args.max_retries
+    )
 
     # Handle cache management requests
     if args.cache_info:
@@ -1366,6 +1492,21 @@ def main() -> None:
         review_manager.mark_completed(review_state.review_id)
         console.print(f"\n[green]✓ Review state saved: {review_state.review_id}[/green]")
         console.print(f"[dim]Context file: .scrynet_cache/reviews/_{review_state.review_id}_context.md[/dim]")
+    
+    # Display cost summary
+    cost_summary = analyzer.cost_tracker.summary(analyzer.model)
+    if cost_summary["api_calls"] > 0 or cost_summary["cache_hits"] > 0:
+        cost_table = Table(title="API Usage Summary", show_header=True, header_style="bold magenta")
+        cost_table.add_column("Metric", style="cyan")
+        cost_table.add_column("Value", style="green")
+        cost_table.add_row("API Calls", str(cost_summary["api_calls"]))
+        cost_table.add_row("Cache Hits", str(cost_summary["cache_hits"]))
+        cost_table.add_row("Input Tokens", f"{cost_summary['input_tokens']:,}")
+        cost_table.add_row("Output Tokens", f"{cost_summary['output_tokens']:,}")
+        cost_table.add_row("Total Tokens", f"{cost_summary['total_tokens']:,}")
+        cost_table.add_row("Estimated Cost", f"${cost_summary['estimated_cost_usd']:.4f}")
+        console.print("\n")
+        console.print(cost_table)
 
 
 if __name__ == "__main__":
