@@ -22,22 +22,15 @@ if "--help-examples" in sys.argv:
     print_quick_reference()
     sys.exit(0)
 
-import difflib
-import functools
-import hashlib
 import html
 import json
-import os
-import re
 import time
-from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Sequence, Union
 
 import anthropic
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.syntax import Syntax
@@ -48,6 +41,18 @@ _BETA_DIR = Path(__file__).parent
 if str(_BETA_DIR) not in sys.path:
     sys.path.insert(0, str(_BETA_DIR))
 
+from common import (
+    get_api_key,
+    parse_json_response,
+    scan_repo_files,
+    retry_with_backoff,
+    CODE_EXTS,
+    YAML_EXTS,
+    HELM_EXTS,
+    SKIP_DIRS,
+)
+from models import AnalysisReport, Finding
+from output_manager import OutputManager
 from prompts import PromptFactory
 
 # Unified context management library
@@ -62,326 +67,12 @@ except ImportError:
 CLAUDE_MODEL: Final = "claude-3-5-haiku-20241022"
 DEFAULT_MAX_FILE_BYTES: Final = 500_000
 DEFAULT_MAX_FILES: Final = 400
-SKIP_DIRS: Final = {".git", "node_modules", "__pycache__", "vendor", "build", "dist"}
-CODE_EXTS: Final = {".py", ".go", ".java", ".js", ".ts", ".php", ".rb", ".jsx", ".tsx"}
-YAML_EXTS: Final = {".yaml", ".yml"}
-HELM_EXTS: Final = {".tpl", ".gotmpl"}
 
 
-# ---------- Data structures ----------
-@dataclass
-class ConversationLog:
-    stage: str
-    file: Optional[str]
-    prompt: str
-    raw_response: str
-    parsed: Optional[dict]
-    timestamp: str
-
-
-@dataclass(slots=True)
-class Finding:
-    file_path: str
-    finding: str
-    recommendation: str
-    relevance: str
-    impact: str
-    confidence: str
-    effort: str
-    cwe: str
-    line_number: Optional[int] = None
-    annotated_snippet: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, d: dict, file_path: str, relevance: str) -> Finding:
-        return cls(
-            file_path=file_path,
-            relevance=relevance,
-            finding=str(d.get("finding", "N/A")),
-            recommendation=str(d.get("recommendation", "N/A")),
-            impact=str(d.get("impact", "N/A")),
-            confidence=str(d.get("confidence", "N/A")),
-            effort=str(d.get("effort", "N/A")),
-            cwe=str(d.get("cwe", "N/A")),
-            line_number=d.get("line_number"),
-        )
-
-
-@dataclass(slots=True)
-class CostTracker:
-    """Tracks API usage and costs."""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    api_calls: int = 0
-    cache_hits: int = 0
-    
-    def add_usage(self, input_tokens: int, output_tokens: int, cached: bool = False) -> None:
-        """Record API usage."""
-        if cached:
-            self.cache_hits += 1
-        else:
-            self.input_tokens += input_tokens
-            self.output_tokens += output_tokens
-            self.api_calls += 1
-    
-    def estimate_cost(self, model: str) -> float:
-        """Estimate cost based on model pricing."""
-        from common import estimate_api_cost
-        return estimate_api_cost(self.input_tokens, self.output_tokens, model)
-    
-    def summary(self, model: str) -> Dict[str, Any]:
-        """Return summary statistics."""
-        return {
-            "api_calls": self.api_calls,
-            "cache_hits": self.cache_hits,
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "total_tokens": self.input_tokens + self.output_tokens,
-            "estimated_cost_usd": self.estimate_cost(model),
-        }
-
-
-@dataclass(slots=True)
-class AnalysisReport:
-    repo_path: str
-    question: str
-    timestamp: str
-    file_count: int
-    insights: List[Finding]
-    synthesis: str
-
-
-# CacheManager removed - now using ReviewContextManager from scrynet_context
-# (Keeping ConversationLog for backward compatibility if needed)
-class CacheManager:
-    def __init__(self, cache_dir: str, use_cache: bool = True):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.use_cache = use_cache
-        self.session_logs: List[ConversationLog] = []
-
-    def _hash_key(self, stage: str, file: Optional[str], prompt: str) -> str:
-        h = hashlib.sha256()
-        h.update(f"{stage}|{file or ''}|{prompt}".encode("utf-8"))
-        return h.hexdigest()[:16]
-
-    def _namespace_dir(self, repo_path: Optional[str], model: Optional[str]) -> Path:
-        """Return namespaced cache directory for a given repo/model pair."""
-        ns_parts = []
-        if repo_path:
-            try:
-                from review_state import ReviewStateManager  # lazy import
-                fp = ReviewStateManager(self.cache_dir).compute_dir_fingerprint(Path(repo_path))
-            except Exception:
-                fp = hashlib.sha256(str(repo_path).encode("utf-8")).hexdigest()[:16]
-            ns_parts.append(fp)
-        if model:
-            ns_parts.append(model.replace("/", "_"))
-        if not ns_parts:
-            return self.cache_dir
-        ns = self.cache_dir.joinpath(*ns_parts)
-        ns.mkdir(parents=True, exist_ok=True)
-        return ns
-
-    def get(self, stage: str, file: Optional[str], prompt: str, repo_path: Optional[str] = None, model: Optional[str] = None) -> Optional[ConversationLog]:
-        if not self.use_cache:
-            return None
-        key = self._hash_key(stage, file, prompt)
-        base = self._namespace_dir(repo_path, model)
-        path = base / f"{key}.json"
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                return ConversationLog(**data)
-            except Exception:
-                return None
-        return None
-
-    def save(
-        self, stage: str, file: Optional[str], prompt: str, raw: str, parsed: Optional[dict],
-        repo_path: Optional[str] = None, model: Optional[str] = None
-    ) -> ConversationLog:
-        entry = ConversationLog(
-            stage=stage,
-            file=file,
-            prompt=prompt,
-            raw_response=raw,
-            parsed=parsed,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
-        key = self._hash_key(stage, file, prompt)
-        base = self._namespace_dir(repo_path, model)
-        path = base / f"{key}.json"
-        path.write_text(json.dumps(asdict(entry), indent=2), encoding="utf-8")
-        self.session_logs.append(entry)
-        return entry
-
-    def save_session_log(self) -> None:
-        if not self.session_logs:
-            return
-        session_file = (
-            self.cache_dir / f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-        )
-        data = [asdict(log) for log in self.session_logs]
-        session_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-    # --- Management APIs ---
-    def stats(self) -> Dict[str, Any]:
-        """Return basic statistics about cache usage."""
-        total_files = 0
-        total_bytes = 0
-        for p in self.cache_dir.rglob("*.json"):
-            try:
-                total_files += 1
-                total_bytes += p.stat().st_size
-            except OSError:
-                pass
-        return {"dir": str(self.cache_dir), "files": total_files, "bytes": total_bytes}
-
-    def list_entries(self, limit: int = 50) -> List[str]:
-        """List cache files (most recent first)."""
-        items = []
-        files = sorted(self.cache_dir.rglob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for p in files[:limit]:
-            items.append(str(p.relative_to(self.cache_dir)))
-        return items
-
-    def prune_older_than(self, days: int) -> int:
-        """Delete cache files older than N days. Returns number deleted."""
-        cutoff = time.time() - (days * 86400)
-        deleted = 0
-        for p in self.cache_dir.rglob("*.json"):
-            try:
-                if p.stat().st_mtime < cutoff:
-                    p.unlink(missing_ok=True)
-                    deleted += 1
-            except OSError:
-                pass
-        return deleted
-
-    def clear_all(self) -> int:
-        """Clear all cache files. Returns number deleted."""
-        deleted = 0
-        for p in self.cache_dir.rglob("*.json"):
-            try:
-                p.unlink(missing_ok=True)
-                deleted += 1
-            except OSError:
-                pass
-        return deleted
-
-    def export(self, out_file: Path) -> None:
-        """Export a manifest of cache entries (paths + first 200 chars)."""
-        manifest: List[Dict[str, Any]] = []
-        for p in self.cache_dir.rglob("*.json"):
-            try:
-                text = p.read_text(encoding="utf-8")
-                manifest.append({"path": str(p.relative_to(self.cache_dir)), "preview": text[:200]})
-            except Exception:
-                continue
-        out_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
-
-# ---------- Helpers ----------
-def get_api_key() -> str:
-    api_key = os.getenv("CLAUDE_API_KEY")
-    if not api_key:
-        print("Error: CLAUDE_API_KEY not set.", file=sys.stderr)
-        sys.exit(1)
-    return api_key
-
-
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
-
-
-def parse_json_response(response_text: str, max_size: int = 1_000_000) -> Optional[dict]:
-    """Parse JSON from API response with size limit to prevent memory exhaustion."""
-    if not response_text:
-        return None
-    
-    if len(response_text) > max_size:
-        print(f"Response too large: {len(response_text)} bytes", file=sys.stderr)
-        return None
-    
-    cleaned = _CODE_FENCE_RE.sub("", response_text).strip()
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except json.JSONDecodeError:
-            return None
-    return None
-
-
-def scan_repo_files(
-    repo_path: Union[str, Path],
-    include_yaml: bool = False,
-    include_helm: bool = False,
-    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
-    max_files: int = DEFAULT_MAX_FILES,
-) -> List[Path]:
-    repo = Path(repo_path)
-    if not repo.is_dir():
-        raise ValueError(f"Repository path '{repo_path}' is not a directory")
-    allowed_exts = set(CODE_EXTS)
-    if include_yaml:
-        allowed_exts |= YAML_EXTS
-    if include_helm:
-        allowed_exts |= HELM_EXTS
-    results: List[Path] = []
-    for file_path in repo.rglob("*"):
-        if len(results) >= max_files:
-            break
-        if not file_path.is_file():
-            continue
-        if any(skip in file_path.parts for skip in SKIP_DIRS):
-            continue
-        if file_path.suffix.lower() not in allowed_exts:
-            continue
-        try:
-            file_stat = file_path.stat()
-            if file_stat.st_size > max_file_bytes:
-                continue
-        except (OSError, PermissionError):
-            continue
-        results.append(file_path)
-    return sorted(results, key=lambda p: (p.suffix, p.name.lower()))
-
-
-# ---------- Core Analyzer ----------
-def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 60.0):
-    """Decorator for retrying API calls with exponential backoff."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except anthropic.APIStatusError as e:
-                    last_exception = e
-                    # Don't retry on client errors (4xx)
-                    if 400 <= e.status_code < 500:
-                        raise
-                    # Retry on server errors (5xx) and rate limits (429)
-                    if attempt < max_retries - 1:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
-                        if e.status_code == 429:
-                            delay = max(delay, 5.0)  # Longer delay for rate limits
-                        time.sleep(delay)
-                    else:
-                        raise
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries - 1:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
-                        time.sleep(delay)
-                    else:
-                        raise
-            if last_exception:
-                raise last_exception
-        return wrapper
-    return decorator
+# Data models are now in models.py
+# CostTracker is now in scrynet_context.py
+# Deprecated CacheManager, ConversationLog, and helper functions removed
+# All utilities are now in common.py
 
 
 class SmartAnalyzer:
@@ -399,29 +90,48 @@ class SmartAnalyzer:
         """Make API call with retry logic."""
         @retry_with_backoff(max_retries=self.max_retries, base_delay=1.0, max_delay=60.0)
         def _make_call():
-            return self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-            )
+            # Log that we're about to make the call (for debugging)
+            import sys
+            print(f"[DEBUG] Calling API: model={self.model}, max_tokens={max_tokens}, prompt_len={len(prompt)}", file=sys.stderr, flush=True)
+            try:
+                result = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self.temperature,
+                )
+                print(f"[DEBUG] API call completed successfully", file=sys.stderr, flush=True)
+                return result
+            except Exception as e:
+                print(f"[DEBUG] API call failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+                raise
         return _make_call()
 
     def _call_claude(
         self, stage: str, file: Optional[str], prompt: str, max_tokens: int = 4000,
         repo_path: Optional[str] = None
     ) -> Optional[str]:
+        import sys
+        print(f"[DEBUG] _call_claude called: stage={stage}, file={file}, prompt_len={len(prompt)}", file=sys.stderr, flush=True)
+        
         # Input validation to prevent memory exhaustion
         if not prompt or len(prompt) > 100_000:
             self.console.print(f"[red]Invalid prompt length: {len(prompt)} bytes (max 100,000)[/red]")
             return None
         
         # Check cache using context manager
+        print(f"[DEBUG] Checking cache...", file=sys.stderr, flush=True)
         cached = None
         if self.context:
-            cached = self.context.get_cached_response(
-                stage, prompt, file=file, repo_path=repo_path, model=self.model
-            )
+            try:
+                cached = self.context.get_cached_response(
+                    stage, prompt, file=file, repo_path=repo_path, model=self.model
+                )
+                print(f"[DEBUG] Cache check complete, cached={cached is not None}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[DEBUG] Cache check failed: {e}", file=sys.stderr, flush=True)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
         
         if cached:
             self.console.print(f"[dim]Cache hit for {stage} ({file or 'n/a'})[/dim]")
@@ -430,7 +140,13 @@ class SmartAnalyzer:
             return cached.raw_response
         
         try:
+            # Make API call - this may take 30-60+ seconds for complex analysis
+            print(f"[DEBUG] About to call _call_claude_api...", file=sys.stderr, flush=True)
             response = self._call_claude_api(prompt, max_tokens)
+            print(f"[DEBUG] _call_claude_api returned", file=sys.stderr, flush=True)
+            if not response or not hasattr(response, 'content'):
+                self.console.print(f"[red]Invalid API response structure[/red]")
+                return None
             raw = response.content[0].text if response.content else ""
             
             # Track token usage from API response
@@ -458,8 +174,15 @@ class SmartAnalyzer:
                 self.console.print(f"[yellow]Rate limit hit. Retrying with backoff...[/yellow]")
             self.console.print(f"[red]API Error ({e.status_code}): {e}[/red]")
             return None
+        except TimeoutError as e:
+            self.console.print(f"[red]API call timed out after 5 minutes: {e}[/red]")
+            return None
         except Exception as e:
-            self.console.print(f"[red]API Error: {e}[/red]")
+            error_msg = str(e)
+            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                self.console.print(f"[red]API call timed out: {error_msg}[/red]")
+            else:
+                self.console.print(f"[red]API Error: {error_msg}[/red]")
             return None
 
     def run_prioritization_stage(
@@ -510,9 +233,13 @@ class SmartAnalyzer:
             task = progress.add_task(f"[cyan]Analyzing {len(files)} files...", total=len(files))
             
             for i, file_path in enumerate(files, 1):
-                # Update progress bar with current file name
+                # Update progress bar with current file name and progress
                 file_display = file_path.name if len(file_path.name) <= 40 else file_path.name[:37] + "..."
-                progress.update(task, description=f"[cyan]Analyzing {file_display}...", refresh=True)
+                progress.update(
+                    task,
+                    description=f"[cyan]Processing {i}/{len(files)}: {file_display}...",
+                    refresh=True
+                )
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="replace")
                     lines = content.splitlines()
@@ -528,15 +255,45 @@ class SmartAnalyzer:
                 else:
                     prompt = PromptFactory.deep_dive(file_path, content, question)
 
-                # Update progress bar before API call
-                progress.update(task, description=f"[cyan]Analyzing {file_display}...", refresh=True)
-                raw = self._call_claude("deep_dive", str(file_path), prompt, repo_path=str(Path(file_path).anchor or Path.cwd()))
+                # Update progress bar before API call - show we're calling API
+                progress.update(
+                    task,
+                    description=f"[yellow]Calling API ({i}/{len(files)}): {file_display}...[/yellow]",
+                    refresh=True
+                )
+                # Print to console so user knows API call is starting (progress bar might not update during blocking call)
+                self.console.print(f"[dim]  [{i}/{len(files)}] Calling API for {file_display}... (this may take 30-60 seconds)[/dim]")
+                # Flush to ensure message is visible
+                import sys
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+                start_time = time.time()
+                try:
+                    # Debug: show we're about to call _call_claude
+                    print(f"[DEBUG] About to call _call_claude for {file_display}, prompt_len={len(prompt)}", file=sys.stderr, flush=True)
+                    raw = self._call_claude("deep_dive", str(file_path), prompt, repo_path=str(Path(file_path).anchor or Path.cwd()))
+                    print(f"[DEBUG] _call_claude returned for {file_display}, raw_len={len(raw) if raw else 0}", file=sys.stderr, flush=True)
+                    elapsed = time.time() - start_time
+                    if elapsed > 30:
+                        self.console.print(f"[dim]  [{i}/{len(files)}] API call completed for {file_display} in {elapsed:.1f}s[/dim]")
+                except Exception as e:
+                    elapsed = time.time() - start_time
+                    self.console.print(f"  [red]Error analyzing {file_display} after {elapsed:.1f}s: {e}[/red]")
+                    progress.advance(task)
+                    continue
+                
                 if not raw:
+                    self.console.print(f"  [yellow]No response for {file_display}, skipping...[/yellow]")
                     progress.advance(task)
                     continue
                 
                 # Update progress bar after API call, before console output
-                progress.update(task, description=f"[cyan]Analyzing {file_display}...", refresh=True)
+                progress.update(
+                    task,
+                    description=f"[green]Processing results ({i}/{len(files)}): {file_display}...[/green]",
+                    refresh=True
+                )
                 
                 if debug:
                     self.console.print(Panel(raw, title=f"RAW API RESPONSE ({file_path.name})"))
@@ -550,7 +307,11 @@ class SmartAnalyzer:
 
                     file_insights: Sequence[dict] = parsed["insights"]
                     # Update progress bar before printing results
-                    progress.update(task, description=f"[cyan]Analyzing {file_display}...", refresh=True)
+                    progress.update(
+                        task,
+                        description=f"[cyan]Found {len(file_insights)} insights ({i}/{len(files)}): {file_display}[/cyan]",
+                        refresh=True
+                    )
                     self.console.print(f"   Relevance: {relevance}, Found: {len(file_insights)} insights")
                     for ins in file_insights:
                         findings.append(Finding.from_dict(ins, str(file_path), relevance))
@@ -806,274 +567,7 @@ class SmartAnalyzer:
         return optimized_code
 
 
-# ---------- Output ----------
-class OutputManager:
-    def __init__(self, console: Console):
-        self.console = console
-
-    def display_console_summary(self, report: AnalysisReport) -> None:
-        self.console.print(
-            Panel(
-                Markdown(report.synthesis),
-                title="[bold blue]Analysis Report & Strategic Plan[/bold blue]",
-                border_style="blue",
-                expand=False,
-            )
-        )
-
-        annotated_findings = [f for f in report.insights if f.annotated_snippet]
-        if annotated_findings:
-            self.console.print("\n[bold magenta]Annotated Code Snippets[/bold magenta]")
-            for finding in annotated_findings:
-                lexer_name = "java" if ".java" in finding.file_path else "python"
-                syntax = Syntax(
-                    finding.annotated_snippet, lexer_name, theme="monokai", line_numbers=True
-                )
-                panel_title = f"[cyan]{Path(finding.file_path).name}[/cyan] - [yellow]{finding.finding}[/yellow] ({finding.cwe})"
-                self.console.print(Panel(syntax, title=panel_title, border_style="magenta"))
-
-    def display_code_improvements(
-        self, improvements_by_file: Dict[str, List[dict]]
-    ) -> None:
-        """Display code improvement suggestions in a readable format."""
-        if not improvements_by_file:
-            return
-        
-        self.console.print(
-            "\n[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]"
-        )
-        self.console.print(
-            "[bold cyan]Code Quality Optimization Results[/bold cyan]"
-        )
-        self.console.print(
-            "[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]\n"
-        )
-        
-        for file_path, improvements in improvements_by_file.items():
-            if not improvements:
-                continue
-            
-            file_name = Path(file_path).name
-            self.console.print(f"\n[cyan]━━━ {file_name} ━━━[/cyan]")
-            
-            for imp in improvements:
-                category = str(imp.get("category", "general")).lower()
-                line = str(imp.get("line_number", "?"))
-                impact = str(imp.get("impact", "?")).upper()
-                
-                # Color based on category
-                color_map = {
-                    "security": "red",
-                    "performance": "yellow",
-                    "typing": "blue",
-                    "readability": "green",
-                    "pythonic": "magenta"
-                }
-                color = color_map.get(category, "white")
-                
-                self.console.print(
-                    f"\n[{color}]● {category.upper()}[/{color}] "
-                    f"(Line {line}, Impact: {impact})"
-                )
-                self.console.print(f"  [dim]{imp.get('explanation', '')}[/dim]")
-                
-                # Show before/after if available
-                if imp.get("current_code"):
-                    self.console.print("\n  [red]Before:[/red]")
-                    self.console.print(
-                        Syntax(
-                            imp["current_code"],
-                            "python",
-                            theme="monokai",
-                            line_numbers=False,
-                            indent_guides=False
-                        )
-                    )
-                
-                if imp.get("improved_code"):
-                    self.console.print("  [green]After:[/green]")
-                    self.console.print(
-                        Syntax(
-                            imp["improved_code"],
-                            "python",
-                            theme="monokai",
-                            line_numbers=False,
-                            indent_guides=False
-                        )
-                    )
-
-    def display_diff(
-        self, original_path: str, original_code: str, optimized_code: str
-    ) -> None:
-        """Display a unified diff between original and optimized code."""
-        original_lines = original_code.splitlines(keepends=True)
-        optimized_lines = optimized_code.splitlines(keepends=True)
-        
-        diff = difflib.unified_diff(
-            original_lines,
-            optimized_lines,
-            fromfile=f"a/{Path(original_path).name}",
-            tofile=f"b/{Path(original_path).name}",
-            lineterm=""
-        )
-        
-        diff_text = "".join(diff)
-        if diff_text:
-            self.console.print(
-                Syntax(
-                    diff_text,
-                    "diff",
-                    theme="monokai",
-                    line_numbers=False
-                )
-            )
-
-    def save_reports(
-        self, report: AnalysisReport, formats: List[str], output_base: Optional[str]
-    ) -> None:
-        base = Path(
-            output_base
-            or f"analysis_{Path(report.repo_path).name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-        )
-        for fmt in formats:
-            if fmt == "console":
-                continue
-            out = base.with_suffix(f".{fmt}")
-            try:
-                if fmt == "markdown":
-                    content = f"# Analysis for `{report.repo_path}`\n\n## Question: {report.question}\n\n---\n\n{report.synthesis}"
-                elif fmt == "html":
-                    md_html = Markdown(report.synthesis)._render_str(self.console)
-                    content = f"<!doctype html><html><head><meta charset='utf-8'><title>Analysis Report</title><style>body{{font-family:sans-serif;max-width:800px;margin:2em auto;}}pre{{background:#f4f4f4;padding:1em;}}</style></head><body><h1>Analysis for <code>{report.repo_path}</code></h1><h2>Question: {report.question}</h2><hr/>{md_html}</body></html>"
-                elif fmt == "json":
-                    content = json.dumps([asdict(f) for f in report.insights], indent=2)
-                else:
-                    content = ""
-                out.write_text(content, encoding="utf-8")
-                self.console.print(f"[green]✓ Saved report to {out}[/green]")
-            except Exception as e:
-                self.console.print(f"[red]Error saving {fmt} report: {e}[/red]")
-
-    def save_improvement_report(
-        self, improvements: Dict[str, List[dict]], output_path: Path
-    ) -> None:
-        """Save code improvements to a structured markdown file."""
-        if not improvements:
-            return
-        
-        try:
-            # Markdown format
-            content = ["# Code Quality Optimization Report\n"]
-            content.append(
-                f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
-            )
-            
-            for file_path, imps in improvements.items():
-                file_name = Path(file_path).name
-                content.append(f"\n## {file_name}\n")
-                for imp in imps:
-                    content.append(
-                        f"### Line {imp.get('line_number', '?')}: "
-                        f"{imp.get('category', 'general').title()}\n"
-                    )
-                    content.append(f"**Impact**: {imp.get('impact', 'N/A')}\n\n")
-                    content.append(f"{imp.get('explanation', '')}\n\n")
-                    if imp.get("improved_code"):
-                        content.append("```python\n")
-                        content.append(imp["improved_code"])
-                        content.append("\n```\n\n")
-            
-            output_path.write_text("".join(content), encoding="utf-8")
-            self.console.print(
-                f"[green]✓ Saved optimization report to {output_path}[/green]"
-            )
-        except Exception as e:
-            self.console.print(f"[red]Error saving optimization report: {e}[/red]")
-
-    def write_optimized_files(
-        self,
-        optimized_code: Dict[str, str],
-        output_dir: Path,
-        repo_path: Path,
-        show_diff: bool
-    ) -> None:
-        """Write optimized code files to output directory."""
-        if not optimized_code:
-            self.console.print(
-                "[yellow]No optimized files to write.[/yellow]"
-            )
-            return
-        
-        output_dir.mkdir(parents=True, exist_ok=True)
-        self.console.print(
-            f"\n[bold cyan]Writing Optimized Files to {output_dir}[/bold cyan]"
-        )
-        
-        repo_path = Path(repo_path).resolve()
-        written_files = []
-        
-        for original_path, code in optimized_code.items():
-            original = Path(original_path).resolve()
-            
-            # Preserve directory structure relative to repo
-            try:
-                relative = original.relative_to(repo_path)
-            except ValueError:
-                # File is outside repo, just use filename
-                relative = original.name
-            
-            output_file = output_dir / relative
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Show diff if requested
-            if show_diff:
-                try:
-                    original_code = original.read_text(encoding="utf-8")
-                    self.console.print(
-                        f"\n[bold yellow]Diff for {relative}:[/bold yellow]"
-                    )
-                    self.display_diff(str(original_path), original_code, code)
-                except Exception as e:
-                    self.console.print(
-                        f"[red]Could not generate diff for {relative}: {e}[/red]"
-                    )
-            
-            try:
-                output_file.write_text(code, encoding="utf-8")
-                written_files.append(str(relative))
-                self.console.print(
-                    f"  [green]✓[/green] {relative}"
-                )
-            except Exception as e:
-                self.console.print(
-                    f"  [red]✗[/red] {relative}: {e}"
-                )
-        
-        if written_files:
-            self.console.print(
-                f"\n[green]✓ Wrote {len(written_files)} optimized file(s)[/green]"
-            )
-            
-            # Create a summary file
-            summary_file = output_dir / "OPTIMIZATIONS.md"
-            summary = [
-                "# Optimized Files\n",
-                f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n",
-                "## Files Modified\n\n"
-            ]
-            for file in written_files:
-                summary.append(f"- `{file}`\n")
-            summary.append(
-                "\n## Next Steps\n\n"
-                "1. Review each optimized file carefully\n"
-                "2. Run tests to ensure functionality is preserved\n"
-                "3. Create a backup of originals before replacing\n"
-                "4. Use `diff` to compare changes\n"
-            )
-            summary_file.write_text("".join(summary), encoding="utf-8")
-            self.console.print(
-                f"[dim]Summary saved to {summary_file.name}[/dim]"
-            )
+# OutputManager is now in output_manager.py
 
 
 # ---------- Interactivity ----------
@@ -1200,6 +694,11 @@ def create_parser() -> argparse.ArgumentParser:
             metavar="REVIEW_ID",
             help="Show status of a specific review and exit"
         )
+        p.add_argument(
+            "--print-review",
+            metavar="REVIEW_ID",
+            help="Print full report of a specific review and exit"
+        )
     
     p.add_argument(
         "--help-examples",
@@ -1278,8 +777,75 @@ def main() -> None:
             except FileNotFoundError:
                 console.print(f"[red]Review '{args.review_status}' not found.[/red]")
             return
+        
+        if args.print_review:
+            try:
+                from models import Finding
+                from output_manager import OutputManager
+                
+                review = context.load_review(args.print_review)
+                
+                # Convert findings from dicts to Finding objects
+                findings = [
+                    Finding.from_dict(
+                        f,
+                        f.get("file_path", ""),
+                        f.get("relevance", "MEDIUM")
+                    ) for f in review.findings
+                ]
+                
+                # Restore optional fields
+                for i, f in enumerate(findings):
+                    if i < len(review.findings):
+                        stored = review.findings[i]
+                        if "line_number" in stored:
+                            f.line_number = stored.get("line_number")
+                        if "annotated_snippet" in stored:
+                            f.annotated_snippet = stored.get("annotated_snippet")
+                
+                # Create a report
+                from models import AnalysisReport
+                report = AnalysisReport(
+                    repo_path=review.repo_path,
+                    question=review.question,
+                    timestamp=review.updated_at or review.created_at,
+                    file_count=len(review.files_analyzed),
+                    insights=findings,
+                    synthesis=review.synthesis or "No synthesis available."
+                )
+                
+                # Print the report using OutputManager
+                output_mgr = OutputManager(console)
+                output_mgr.display_console_summary(report)
+                
+                # Also show checkpoints and metadata
+                console.print(f"\n[bold]Review Metadata[/bold]")
+                console.print(f"Review ID: {review.review_id}")
+                console.print(f"Status: {review.status}")
+                console.print(f"Created: {review.created_at}")
+                console.print(f"Updated: {review.updated_at}")
+                if review.checkpoints:
+                    console.print(f"\n[bold]Checkpoints:[/bold]")
+                    for cp in review.checkpoints:
+                        console.print(f"  - {cp.stage} ({cp.timestamp[:19]})")
+                
+                # Show context file location
+                context_file = context.reviews_dir / f"_{review.review_id}_context.md"
+                if context_file.exists():
+                    console.print(f"\n[dim]Full context file: {context_file}[/dim]")
+                
+            except FileNotFoundError:
+                console.print(f"[red]Review '{args.print_review}' not found.[/red]")
+            except Exception as e:
+                console.print(f"[red]Error loading review: {e}[/red]")
+                import traceback
+                if args.debug:
+                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+            return
 
     api_key = get_api_key()
+    # Initialize client with timeout for all API calls
+    # Note: timeout may need to be set via httpx_client if Anthropic SDK doesn't support it directly
     client = anthropic.Anthropic(api_key=api_key)
     
     # Initialize context manager (handles both cache and review state)
@@ -1358,7 +924,9 @@ def main() -> None:
     # Initialize review state management (if enabled)
     review_state = None
     if CONTEXT_AVAILABLE and context and (args.enable_review_state or args.resume_review or args.resume_last):
-        current_fingerprint = context.compute_dir_fingerprint(repo_path)
+        # Compute fingerprint only when needed (for change detection)
+        # This can be slow on large repos, so we do it lazily
+        current_fingerprint = None  # Will be computed only if needed
         
         if args.resume_review:
             try:

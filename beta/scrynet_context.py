@@ -463,7 +463,12 @@ class ReviewContextManager:
         ns_parts = []
         if repo_path:
             try:
-                fp = self.compute_dir_fingerprint(repo_path)
+                # Use a simple hash of the repo path instead of computing fingerprint
+                # Computing fingerprint scans entire repo which can hang on large repos
+                repo_str = str(Path(repo_path).resolve())
+                fp = hashlib.sha256(repo_str.encode("utf-8")).hexdigest()[:16]
+                # Only compute fingerprint if we need it (for review state matching)
+                # For cache namespace, simple path hash is sufficient
             except Exception:
                 fp = hashlib.sha256(str(repo_path).encode("utf-8")).hexdigest()[:16]
             ns_parts.append(fp)

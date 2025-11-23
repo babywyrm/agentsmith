@@ -6,13 +6,17 @@ Reduces code duplication and provides consistent behavior.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
 import re
 import sys
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, TypeVar
+
+T = TypeVar('T')
 
 # Shared constants
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "vendor", "build", "dist"}
@@ -173,4 +177,61 @@ def estimate_api_cost(input_tokens: int, output_tokens: int, model: str = "haiku
     
     input_price, output_price = pricing.get(model.lower(), pricing["haiku"])
     return (input_tokens * input_price) + (output_tokens * output_price)
+
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator for retrying function calls with exponential backoff.
+    
+    Handles API errors gracefully:
+    - Client errors (4xx): No retry, raise immediately
+    - Server errors (5xx): Retry with exponential backoff
+    - Rate limits (429): Retry with longer delay
+    
+    Works with anthropic.APIStatusError and other exceptions that have status_code attribute.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds for exponential backoff
+        max_delay: Maximum delay in seconds
+    
+    Returns:
+        Decorator function
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            last_exception: Optional[Exception] = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    # Check if it's an APIStatusError (from anthropic) or similar
+                    status_code = getattr(e, 'status_code', None)
+                    
+                    # Don't retry on client errors (4xx) - these are permanent failures
+                    if status_code and 400 <= status_code < 500:
+                        raise
+                    
+                    # Retry on server errors (5xx) and rate limits (429)
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        if status_code == 429:
+                            delay = max(delay, 5.0)  # Longer delay for rate limits
+                        time.sleep(delay)
+                    else:
+                        # Last attempt failed, raise the exception
+                        raise
+            
+            # Should never reach here, but handle it just in case
+            if last_exception:
+                raise last_exception
+            raise RuntimeError("Unexpected retry loop exit")
+        return wrapper
+    return decorator
 
