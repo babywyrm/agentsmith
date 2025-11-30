@@ -491,8 +491,11 @@ def main() -> None:
     
     if context:
         cost_summary = context.get_cost_summary(args.model)
-        total_cost = cost_summary.get("total_cost", 0.0)
-        console.print(f"[dim]Total cost: ${total_cost:.4f}[/dim]")
+        total_cost = cost_summary.get("estimated_cost_usd", 0.0)
+        api_calls = cost_summary.get("api_calls", 0)
+        cache_hits = cost_summary.get("cache_hits", 0)
+        if api_calls > 0 or cache_hits > 0:
+            console.print(f"[dim]API calls: {api_calls}, Cache hits: {cache_hits}, Total cost: ${total_cost:.4f}[/dim]")
 
 
 if __name__ == "__main__":
