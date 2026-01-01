@@ -73,7 +73,8 @@ class Orchestrator:
                  severity: Optional[str], profiles: str, static_rules: Optional[str],
                  threat_model: bool, verbose: bool, model: Optional[str] = None,
                  prioritize: bool = False, prioritize_top: int = 15, question: Optional[str] = None,
-                 generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5):
+                 generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5,
+                 export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None):
         self.repo_path = repo_path.resolve()
         self.scanner_bin = scanner_bin.resolve()
         self.parallel = parallel
@@ -90,6 +91,7 @@ class Orchestrator:
         self.generate_payloads = generate_payloads
         self.annotate_code = annotate_code
         self.top_n = top_n
+        self.export_formats = export_formats or ['json', 'csv', 'markdown']
         
         # Rich console for better UX
         self.console = Console()
@@ -100,7 +102,10 @@ class Orchestrator:
             sys.exit(1)
 
         sanitized_repo_name = str(repo_path).strip('/').replace('/', '_')
-        self.output_path = Path("output") / sanitized_repo_name
+        if output_dir:
+            self.output_path = Path(output_dir) / sanitized_repo_name
+        else:
+            self.output_path = Path("output") / sanitized_repo_name
         os.makedirs(self.output_path, exist_ok=True)
         self.console.print(f"[dim]Outputs will be saved in: {self.output_path}[/dim]")
         if self.severity:
@@ -504,6 +509,109 @@ class Orchestrator:
                 return
         self.console.print("[red]All retries failed for threat model generation[/red]")
     
+    def _generate_html_report(self, findings: List[Dict[str, Any]], output_file: Path) -> None:
+        """Generate an HTML report with detailed findings."""
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCRYNET Security Report</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        h1 {{ color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }}
+        .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }}
+        .stat-card {{ background: #f9f9f9; padding: 15px; border-radius: 5px; border-left: 4px solid #4CAF50; }}
+        .stat-card.critical {{ border-left-color: #f44336; }}
+        .stat-card.high {{ border-left-color: #ff9800; }}
+        .stat-card.medium {{ border-left-color: #ffc107; }}
+        .stat-card.low {{ border-left-color: #2196F3; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background: #4CAF50; color: white; font-weight: 600; }}
+        tr:hover {{ background: #f5f5f5; }}
+        .severity {{ padding: 4px 8px; border-radius: 3px; font-weight: 600; font-size: 0.85em; }}
+        .severity.CRITICAL {{ background: #ffebee; color: #c62828; }}
+        .severity.HIGH {{ background: #fff3e0; color: #e65100; }}
+        .severity.MEDIUM {{ background: #fffde7; color: #f57f17; }}
+        .severity.LOW {{ background: #e3f2fd; color: #1565c0; }}
+        .file-path {{ font-family: 'Monaco', 'Courier New', monospace; font-size: 0.9em; color: #666; }}
+        .line-num {{ color: #4CAF50; font-weight: 600; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 SCRYNET Security Report</h1>
+        <p><strong>Repository:</strong> {self.repo_path}</p>
+        <p><strong>Generated:</strong> {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
+        
+        <div class="summary">
+"""
+        
+        # Calculate severity counts
+        severity_counts = {}
+        for item in findings:
+            sev = item.get('severity', 'UNKNOWN').upper()
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        
+        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+            count = severity_counts.get(sev, 0)
+            html_content += f"""
+            <div class="stat-card {sev.lower()}">
+                <div style="font-size: 2em; font-weight: bold;">{count}</div>
+                <div>{sev} Findings</div>
+            </div>
+"""
+        
+        html_content += """
+        </div>
+        
+        <h2>Detailed Findings</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>File</th>
+                    <th>Line</th>
+                    <th>Category</th>
+                    <th>Title</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+        
+        for item in findings:
+            sev = item.get('severity', 'UNKNOWN')
+            file_path = item.get('file', '')
+            line_num = item.get('line_number', item.get('line', ''))
+            category = item.get('category', '')
+            title = item.get('title', item.get('rule_name', ''))
+            source = item.get('source', '')
+            
+            html_content += f"""
+                <tr>
+                    <td><span class="severity {sev}">{sev}</span></td>
+                    <td class="file-path">{file_path}</td>
+                    <td class="line-num">{line_num}</td>
+                    <td>{category}</td>
+                    <td>{title}</td>
+                    <td>{source}</td>
+                </tr>
+"""
+        
+        html_content += """
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+"""
+        
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(html_content)
+    
     def run_payload_generation_stage(self, top_findings: List[Dict[str, Any]]) -> None:
         """Generate Red/Blue team payloads for top findings."""
         if not self.generate_payloads or not top_findings:
@@ -566,18 +674,44 @@ class Orchestrator:
                         rt = parsed.get("red_team_payload", {})
                         bt = parsed.get("blue_team_payload", {})
                         
+                        # Extract file and line info
+                        file_path = finding.get('file', 'Unknown')
+                        line_num = finding.get('line_number', finding.get('line', '?'))
+                        finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
+                        severity = finding.get('severity', 'UNKNOWN')
+                        
+                        # Create detailed header
+                        location_info = f"[bold cyan]📍 Location:[/bold cyan] {file_path} [dim](Line {line_num})[/dim]"
+                        finding_info = f"[bold yellow]🔍 Finding:[/bold yellow] {finding_title} [dim][{severity}][/dim]"
+                        
                         self.console.print(
                             Panel(
-                                f"[bold red]🔴 Red Team[/bold red]\n"
-                                f"Payload: `{rt.get('payload', 'N/A')}`\n"
-                                f"{rt.get('explanation', 'N/A')}\n\n"
-                                f"[bold green]🔵 Blue Team[/bold green]\n"
-                                f"Payload: `{bt.get('payload', 'N/A')}`\n"
-                                f"{bt.get('explanation', 'N/A')}",
-                                title=f"💣 Payloads for '{finding.get('title', 'Unknown')}'",
+                                f"{location_info}\n"
+                                f"{finding_info}\n\n"
+                                f"[bold red]🔴 Red Team Payload[/bold red]\n"
+                                f"Payload: [bold]`{rt.get('payload', 'N/A')}`[/bold]\n"
+                                f"Explanation: {rt.get('explanation', 'N/A')}\n\n"
+                                f"[bold green]🔵 Blue Team Payload[/bold green]\n"
+                                f"Payload: [bold]`{bt.get('payload', 'N/A')}`[/bold]\n"
+                                f"Explanation: {bt.get('explanation', 'N/A')}",
+                                title=f"💣 Payloads for '{finding_title}'",
                                 border_style="magenta",
                             )
                         )
+                        
+                        # Save to file for later reference
+                        payload_file = self.output_path / "payloads" / f"payload_{Path(file_path).stem}_L{line_num}.json"
+                        payload_file.parent.mkdir(parents=True, exist_ok=True)
+                        payload_data = {
+                            "file": file_path,
+                            "line": line_num,
+                            "finding": finding_title,
+                            "severity": severity,
+                            "red_team_payload": rt,
+                            "blue_team_payload": bt
+                        }
+                        with open(payload_file, "w", encoding="utf-8") as f:
+                            json.dump(payload_data, f, indent=2)
                 except Exception as e:
                     self.console.print(f"[red]Error generating payloads for {file_path}: {e}[/red]")
                 
@@ -647,14 +781,55 @@ class Orchestrator:
                     parsed = parse_json_response(raw)
                     if parsed and "annotated_snippet" in parsed:
                         snippet = parsed["annotated_snippet"]
+                        
+                        # Extract file and line info
+                        file_path = finding.get('file', 'Unknown')
+                        line_num = finding.get('line_number', finding.get('line', '?'))
+                        finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
+                        severity = finding.get('severity', 'UNKNOWN')
+                        recommendation = finding.get('recommendation', finding.get('description', 'N/A'))
+                        
+                        # Detect language from file extension
+                        file_ext = Path(file_path).suffix.lower()
+                        language = SUPPORTED_EXTENSIONS.get(file_ext, 'text')
+                        
+                        # Create detailed header
+                        location_info = f"[bold cyan]📍 File:[/bold cyan] {file_path} [dim]| Line: {line_num} | Severity: [{severity}][/dim]"
+                        finding_info = f"[bold yellow]🔍 Issue:[/bold yellow] {finding_title}"
+                        recommendation_info = f"[bold green]💡 Recommendation:[/bold green] {recommendation}"
+                        
+                        self.console.print(f"\n{location_info}")
+                        self.console.print(f"{finding_info}")
+                        self.console.print(f"{recommendation_info}\n")
+                        
                         self.console.print(
                             Panel(
-                                Syntax(snippet, "php", theme="monokai", line_numbers=True),
-                                title=f"📝 Annotated Code for '{finding.get('title', 'Unknown')}'",
+                                Syntax(snippet, language, theme="monokai", line_numbers=True, start_line=max(1, int(line_num) - 5) if str(line_num).isdigit() else 1),
+                                title=f"📝 Annotated Code Snippet",
                                 border_style="yellow",
                             )
                         )
-                        self.console.print(f"[green]✓[/green] Annotated snippet for [yellow]'{finding.get('title', 'Unknown')}'[/yellow]")
+                        self.console.print(f"[green]✓[/green] Annotated code for [yellow]{Path(file_path).name}[/yellow] [dim](Line {line_num})[/dim]\n")
+                        
+                        # Save to file for later reference
+                        annotation_file = self.output_path / "annotations" / f"annotation_{Path(file_path).stem}_L{line_num}.md"
+                        annotation_file.parent.mkdir(parents=True, exist_ok=True)
+                        annotation_content = f"""# Code Annotation: {finding_title}
+
+**File:** `{file_path}`  
+**Line:** {line_num}  
+**Severity:** {severity}  
+**Finding:** {finding_title}  
+**Recommendation:** {recommendation}
+
+## Annotated Code
+
+```{language}
+{snippet}
+```
+"""
+                        with open(annotation_file, "w", encoding="utf-8") as f:
+                            f.write(annotation_content)
                 except Exception as e:
                     self.console.print(f"[red]Error annotating {file_path}: {e}[/red]")
                 
@@ -800,6 +975,12 @@ def main() -> None:
                         help="Generate annotated code snippets showing flaws and fixes")
     parser.add_argument("--top-n", type=int, default=5,
                         help="Number of top findings for payload/annotation generation (default: 5)")
+    parser.add_argument("--export-format", nargs="*", 
+                        choices=['json', 'csv', 'markdown', 'html'],
+                        default=['json', 'csv', 'markdown'],
+                        help='Report export formats (default: json, csv, markdown)')
+    parser.add_argument("--output-dir", type=Path,
+                        help='Custom output directory for reports (default: ./output)')
     args = parser.parse_args()
 
     console = Console()
@@ -829,7 +1010,9 @@ def main() -> None:
         question=args.question,
         generate_payloads=args.generate_payloads,
         annotate_code=args.annotate_code,
-        top_n=args.top_n
+        top_n=args.top_n,
+        export_formats=args.export_format,
+        output_dir=args.output_dir
     )
     orchestrator.run()
 

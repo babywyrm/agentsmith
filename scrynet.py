@@ -18,24 +18,39 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SCRYNET - Unified Security Scanner",
+        description="🔍 SCRYNET - Unified Security Scanner\n\n"
+        "Combine fast static analysis with AI-powered contextual security review.\n"
+        "Perfect for security audits, CTF challenges, and vulnerability discovery.\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Static scanning (Go scanner only)
-  python3 scrynet.py static /path/to/repo --severity HIGH
-  
-  # AI-powered analysis
-  python3 scrynet.py analyze /path/to/repo "find security vulnerabilities"
-  
-  # CTF mode (exploitation-focused)
-  python3 scrynet.py ctf /path/to/ctf "find all vulnerabilities" --generate-payloads
-  
-  # Hybrid mode (static + AI)
-  python3 scrynet.py hybrid /path/to/repo ./scanner --profile owasp
+📚 QUICK START EXAMPLES:
 
-For more information on each mode, use:
-  python3 scrynet.py <mode> --help
+  🚀 Fast Static Scan (No AI, Instant Results):
+     python3 scrynet.py static ./myapp --severity HIGH
+
+  🧠 AI-Powered Deep Analysis (Smart Prioritization):
+     python3 scrynet.py analyze ./myapp "find SQL injection vulnerabilities" \\
+       --prioritize --prioritize-top 20 --verbose
+
+  🎯 CTF Mode (Exploitation-Focused):
+     python3 scrynet.py ctf ./ctf-challenge "find all vulnerabilities" \\
+       --generate-payloads --top-n 10
+
+  ⚡ Hybrid Mode (Best of Both Worlds):
+     python3 scrynet.py hybrid ./myapp ./scanner --profile owasp \\
+       --prioritize --prioritize-top 15 \\
+       --question "find authentication bypass vulnerabilities" \\
+       --generate-payloads --annotate-code --top-n 8 --verbose
+
+💡 PRO TIPS:
+
+  • Use --prioritize for large repos (saves time & API costs)
+  • Combine --generate-payloads + --annotate-code for comprehensive reports
+  • Use --verbose to see real-time progress with colors and spinners
+  • Set --top-n to control how many findings get payloads/annotations
+
+📖 For detailed help on each mode:
+   python3 scrynet.py <mode> --help
         """
     )
     
@@ -44,8 +59,26 @@ For more information on each mode, use:
     # Static mode (Go scanner)
     static_parser = subparsers.add_parser(
         'static',
-        help='Run static Go scanner only (fast, no AI)',
-        description='Fast static analysis using the Go scanner binary'
+        help='⚡ Static scanner only (fast, no AI)',
+        description='Lightning-fast static analysis using the Go scanner binary.\n'
+                   'Perfect for quick scans, CI/CD pipelines, and when you need instant results.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+⚡ STATIC MODE EXAMPLES:
+
+  Quick Scan (All Severities):
+    python3 scrynet.py static ./myapp ./scanner
+
+  High/Critical Only:
+    python3 scrynet.py static ./myapp ./scanner --severity HIGH
+
+  Custom Rules:
+    python3 scrynet.py static ./myapp ./scanner \\
+      --rules ./custom-rules.json,./more-rules.json
+
+  JSON Output for Automation:
+    python3 scrynet.py static ./myapp ./scanner --output json > results.json
+        """
     )
     static_parser.add_argument('repo_path', help='Path to repository to scan')
     static_parser.add_argument('scanner_bin', help='Path to scanner binary', nargs='?', default='./scanner')
@@ -59,8 +92,33 @@ For more information on each mode, use:
     # Analyze mode (smart analyzer)
     analyze_parser = subparsers.add_parser(
         'analyze',
-        help='Run AI-powered multi-stage analysis',
-        description='Comprehensive AI analysis with prioritization, deep dive, and synthesis'
+        help='🧠 AI-powered multi-stage analysis',
+        description='Advanced AI-powered security analysis with prioritization, deep dive, synthesis, and more.\n'
+                   'Best for comprehensive security reviews and detailed vulnerability discovery.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+🧠 ANALYZE MODE EXAMPLES:
+
+  Basic AI Analysis:
+    python3 scrynet.py analyze ./myapp "find security vulnerabilities"
+
+  Prioritized SQL Injection Hunt:
+    python3 scrynet.py analyze ./myapp \\
+      "find SQL injection vulnerabilities" \\
+      --prioritize-top 20 \\
+      --verbose
+
+  Comprehensive Security Review:
+    python3 scrynet.py analyze ./myapp \\
+      "find authentication and authorization vulnerabilities" \\
+      --prioritize-top 25 \\
+      --generate-payloads \\
+      --annotate-code \\
+      --top-n 10 \\
+      --verbose
+
+💡 TIP: Use specific questions for better results!
+        """
     )
     analyze_parser.add_argument('repo_path', help='Path to repository to analyze')
     analyze_parser.add_argument('question', nargs='?', help='Analysis question')
@@ -93,8 +151,28 @@ For more information on each mode, use:
     # CTF mode
     ctf_parser = subparsers.add_parser(
         'ctf',
-        help='Run CTF-focused vulnerability discovery',
-        description='Optimized for Capture The Flag challenges - quick vulnerability discovery'
+        help='🎯 CTF mode (exploitation-focused)',
+        description='CTF-focused vulnerability discovery optimized for quick exploitation.\n'
+                   'Perfect for Capture The Flag challenges, bug bounties, and penetration testing.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+🎯 CTF MODE EXAMPLES:
+
+  Quick CTF Challenge Scan:
+    python3 scrynet.py ctf ./ctf-challenge "find all vulnerabilities" \\
+      --generate-payloads \\
+      --verbose
+
+  Focused SQL Injection CTF:
+    python3 scrynet.py ctf ./ctf-challenge \\
+      "find SQL injection vulnerabilities" \\
+      --prioritize-top 15 \\
+      --generate-payloads \\
+      --top-n 10 \\
+      --verbose
+
+💡 CTF Mode is optimized for quick vulnerability discovery and exploitation.
+        """
     )
     ctf_parser.add_argument('repo_path', help='Path to CTF challenge')
     ctf_parser.add_argument('question', nargs='?', help='Analysis question')
@@ -116,8 +194,49 @@ For more information on each mode, use:
     # Hybrid mode (orchestrator)
     hybrid_parser = subparsers.add_parser(
         'hybrid',
-        help='Run hybrid analysis (static scanner + AI)',
-        description='Combines fast static scanning with AI-powered contextual analysis'
+        help='⚡ Hybrid analysis: Static scanner + AI (Recommended)',
+        description='Combines fast static scanning with AI-powered contextual analysis.\n'
+                   'Best for comprehensive security reviews with prioritization and detailed findings.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+🎯 HYBRID MODE EXAMPLES:
+
+  Basic Scan (Quick & Effective):
+    python3 scrynet.py hybrid ./myapp ./scanner --profile owasp
+
+  Focused SQL Injection Hunt (Prioritized):
+    python3 scrynet.py hybrid ./myapp ./scanner \\
+      --profile owasp \\
+      --prioritize \\
+      --prioritize-top 20 \\
+      --question "find SQL injection vulnerabilities in database queries" \\
+      --verbose
+
+  Comprehensive Security Audit (Full Features):
+    python3 scrynet.py hybrid ./myapp ./scanner \\
+      --profile owasp \\
+      --prioritize \\
+      --prioritize-top 25 \\
+      --question "find authentication bypass and broken access control" \\
+      --generate-payloads \\
+      --annotate-code \\
+      --top-n 10 \\
+      --export-format json html markdown \\
+      --output-dir ./reports \\
+      --verbose
+
+💡 UNDERSTANDING THE FLAGS:
+
+  --prioritize-top N    → AI selects top N files to analyze (saves time/cost)
+                          Example: --prioritize-top 20 analyzes 20 most relevant files
+
+  --top-n N             → Generate payloads/annotations for top N findings
+                          Example: --top-n 10 creates payloads for 10 most critical issues
+
+  --question "..."      → Guides AI prioritization (be specific!)
+                          Good: "find SQL injection in user input handling"
+                          Bad: "find bugs"
+        """
     )
     hybrid_parser.add_argument('repo_path', help='Path to repository to scan')
     hybrid_parser.add_argument('scanner_bin', help='Path to scanner binary', nargs='?', default='./scanner')
@@ -135,6 +254,12 @@ For more information on each mode, use:
     hybrid_parser.add_argument('--generate-payloads', action='store_true', help='Generate Red/Blue team payloads for top findings')
     hybrid_parser.add_argument('--annotate-code', action='store_true', help='Generate annotated code snippets showing flaws and fixes')
     hybrid_parser.add_argument('--top-n', type=int, default=5, help='Number of top findings for payload/annotation generation (default: 5)')
+    hybrid_parser.add_argument('--export-format', nargs='*',
+                              choices=['json', 'csv', 'markdown', 'html'],
+                              default=['json', 'csv', 'markdown'],
+                              help='Report export formats (default: json, csv, markdown)')
+    hybrid_parser.add_argument('--output-dir', type=Path,
+                              help='Custom output directory for reports (default: ./output)')
     
     args = parser.parse_args()
     
@@ -231,6 +356,10 @@ For more information on each mode, use:
                 continue
             if isinstance(value, bool) and value:
                 sys.argv.append(f'--{key.replace("_", "-")}')
+            elif isinstance(value, list):
+                # Handle list arguments like --export-format
+                sys.argv.append(f'--{key.replace("_", "-")}')
+                sys.argv.extend(str(v) for v in value)
             elif not isinstance(value, bool):
                 sys.argv.append(f'--{key.replace("_", "-")}')
                 sys.argv.append(str(value))
