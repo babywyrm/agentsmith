@@ -1,0 +1,839 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import time
+import subprocess
+import argparse
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import logging
+import anthropic
+import csv
+from enum import Enum
+from typing import TypedDict
+
+# Rich console for better UX
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.table import Table
+from rich.panel import Panel
+from rich.syntax import Syntax
+
+# Import prioritization support
+from lib.common import parse_json_response
+from lib.prompts import PromptFactory
+
+# --- Constants / Configuration ---
+CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
+MAX_WORKERS = 4
+MAX_RETRIES = 3
+CHUNK_SIZE = 2000  # lines per file chunk
+MAX_FILE_SIZE = 2 * 1024 * 1024  # 2MB per file safeguard
+
+SUPPORTED_EXTENSIONS = {
+    '.go': 'go', '.py': 'python', '.java': 'java', '.js': 'javascript',
+    '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'typescript',
+    '.php': 'php', '.html': 'html', '.htm': 'html', '.css': 'css', '.sql': 'sql',
+}
+
+
+class Severity(Enum):
+    CRITICAL = 1
+    HIGH = 2
+    MEDIUM = 3
+    LOW = 4
+
+
+class Finding(TypedDict, total=False):
+    severity: str
+    file: str
+    line_number: int
+    category: str
+    title: str
+    source: str
+
+
+# --- Logging Setup ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
+
+
+class Orchestrator:
+    """Coordinates scrynet static scan, Claude AI analysis, and threat modeling."""
+
+    def __init__(self, repo_path: Path, scanner_bin: Path, parallel: bool, debug: bool,
+                 severity: Optional[str], profiles: str, static_rules: Optional[str],
+                 threat_model: bool, verbose: bool, model: Optional[str] = None,
+                 prioritize: bool = False, prioritize_top: int = 15, question: Optional[str] = None,
+                 generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5):
+        self.repo_path = repo_path.resolve()
+        self.scanner_bin = scanner_bin.resolve()
+        self.parallel = parallel
+        self.debug = debug
+        self.severity = severity.upper() if severity else None
+        self.profiles = [p.strip() for p in profiles.split(',')]
+        self.static_rules = static_rules
+        self.threat_model = threat_model
+        self.verbose = verbose
+        self.model = model or CLAUDE_MODEL
+        self.prioritize = prioritize
+        self.prioritize_top = prioritize_top
+        self.question = question or "find security vulnerabilities"
+        self.generate_payloads = generate_payloads
+        self.annotate_code = annotate_code
+        self.top_n = top_n
+        
+        # Rich console for better UX
+        self.console = Console()
+
+        self.api_key = os.getenv("CLAUDE_API_KEY")
+        if not self.api_key:
+            logger.error("CLAUDE_API_KEY environment variable not set.")
+            sys.exit(1)
+
+        sanitized_repo_name = str(repo_path).strip('/').replace('/', '_')
+        self.output_path = Path("output") / sanitized_repo_name
+        os.makedirs(self.output_path, exist_ok=True)
+        self.console.print(f"[dim]Outputs will be saved in: {self.output_path}[/dim]")
+        if self.severity:
+            self.console.print(f"[dim]Filtering for minimum severity: {self.severity}[/dim]")
+        self.console.print(f"[dim]Using AI analysis profiles: {self.profiles}[/dim]")
+
+        self.prompt_templates = self._load_prompt_templates()
+        self.client = anthropic.Anthropic(api_key=self.api_key)
+
+    def _load_prompt_templates(self) -> Dict[str, str]:
+        """Load profile-specific AI prompts from prompts/ directory."""
+        templates: Dict[str, str] = {}
+        profiles_to_load = self.profiles[:]
+        if self.threat_model and 'attacker' not in profiles_to_load:
+            profiles_to_load.append('attacker')
+        for profile in profiles_to_load:
+            # Try prompts/ directory first (for backward compatibility)
+            prompt_file = Path("prompts") / f"{profile}_profile.txt"
+            if not prompt_file.is_file():
+                # Fallback: check if we're in a different directory structure
+                script_dir = Path(__file__).parent
+                prompt_file = script_dir / "prompts" / f"{profile}_profile.txt"
+            if not prompt_file.is_file():
+                self.console.print(f"[red]Prompt file not found: {prompt_file}[/red]")
+                sys.exit(1)
+            templates[profile] = prompt_file.read_text(encoding="utf-8")
+        self.console.print(f"[dim]   (Loaded {len(templates)} prompt templates)[/dim]")
+        return templates
+
+    def _meets_severity_threshold(self, finding_severity: str) -> bool:
+        """Check if finding meets severity filter threshold."""
+        if not self.severity:
+            return True
+        try:
+            finding_level = Severity[finding_severity.upper()].value
+            threshold_level = Severity[self.severity].value
+            return finding_level <= threshold_level
+        except KeyError:
+            return False
+
+    def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """Extract JSON object from model output using regex fallback."""
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+        return None
+
+    def run_static_scanner(self) -> List[Finding]:
+        """Invoke scrynet scanner binary and parse JSON results."""
+        self.console.print("\n[bold cyan]⚡ Stage 0: Static Scanner[/bold cyan]")
+        self.console.print("[dim]Running fast static analysis...[/dim]")
+        
+        cmd = [str(self.scanner_bin), "--dir", str(self.repo_path), "--output", "json"]
+        if self.severity:
+            cmd.extend(["--severity", self.severity])
+        if self.static_rules:
+            cmd.extend(["--rules", self.static_rules])
+        if self.verbose:
+            cmd.append("--verbose")
+        
+        with self.console.status("[bold cyan]🔍 Scanning repository...[/bold cyan]", spinner="dots"):
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            except subprocess.TimeoutExpired:
+                self.console.print("[red]scrynet scanner timed out after 5 minutes[/red]")
+                return []
+            except subprocess.CalledProcessError as e:
+                self.console.print(f"[red]scrynet scanner failed: {e.stderr}[/red]")
+                return []
+            except Exception as e:
+                self.console.print(f"[red]Unexpected error running scanner: {e}[/red]")
+                return []
+        out = proc.stdout
+        start = out.find('[')
+        end = out.rfind(']') + 1
+        if start < 0 or end <= start:
+            return []
+        try:
+            findings = json.loads(out[start:end])
+            self.console.print(f"[green]✓[/green] Static scanner found {len(findings)} issues")
+            return findings
+        except json.JSONDecodeError:
+            return []
+
+    def _get_files_to_scan(self) -> List[Path]:
+        """List source files, excluding dependency/build dirs."""
+        skip_dirs = {'.git', 'node_modules', '__pycache__', 'vendor', 'build', 'dist'}
+        files: List[Path] = []
+        for p in self.repo_path.rglob('*'):
+            if (p.is_file() and
+                p.suffix.lower() in SUPPORTED_EXTENSIONS and
+                not any(skip_dir in p.parts for skip_dir in skip_dirs)):
+                if p.stat().st_size <= MAX_FILE_SIZE:
+                    files.append(p)
+                else:
+                    logger.warning(f"Skipping {p}, file exceeds {MAX_FILE_SIZE} bytes.")
+        return sorted(files)
+
+    def _chunk_file(self, file_path: Path) -> List[str]:
+        """Split large file into chunks to avoid token limits."""
+        with file_path.open(encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if len(lines) <= CHUNK_SIZE:
+            return ["".join(lines)]
+        return [
+            "".join(lines[i:i+CHUNK_SIZE])
+            for i in range(0, len(lines), CHUNK_SIZE)
+        ]
+
+    def _analyze_file_with_claude(self, file_path: Path, profile: str) -> Optional[Dict[str, Any]]:
+        """Send file contents (chunked if needed) to Claude and parse JSON response."""
+        client = self.client
+        code_chunks = self._chunk_file(file_path)
+        language = SUPPORTED_EXTENSIONS.get(file_path.suffix.lower(), "text")
+        for chunk in code_chunks:
+            if not chunk.strip():
+                continue
+            try:
+                prompt = self.prompt_templates[profile].format(file_path=file_path, language=language, code=chunk)
+            except KeyError as e:
+                logger.error(f"Prompt template for {profile} missing placeholder: {e}")
+                return None
+            for attempt in range(MAX_RETRIES):
+                try:
+                    resp = client.messages.create(
+                        model=self.model,
+                        max_tokens=3000,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    parsed = self._extract_json(resp.content[0].text.strip())
+                    if parsed:
+                        return parsed
+                except anthropic.APIStatusError as e:
+                    if e.status_code == 529 and attempt < MAX_RETRIES - 1:
+                        wait_time = 2 ** (attempt + 1)
+                        logger.warning(f"Claude API overloaded for {file_path}. Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+                except Exception as e:
+                    logger.error(f"Unexpected error analyzing {file_path}: {e}")
+                    return None
+        return None
+
+    def _print_live_claude_summary(self, file_path: Path, result: Dict[str, Any], profile: str) -> None:
+        """Render inline summary of model findings for a single file with Rich formatting."""
+        if not self.verbose:
+            return
+        
+        risk = result.get("overall_risk", "N/A")
+        findings_key = next((key for key in result if key.endswith("_findings")), None)
+        findings = result.get(findings_key, [])
+        
+        # Color code risk level
+        risk_color = {
+            "CRITICAL": "red",
+            "HIGH": "yellow",
+            "MEDIUM": "cyan",
+            "LOW": "dim"
+        }.get(risk.upper(), "white")
+        
+        self.console.print(f"\n[bold cyan]📄 {file_path.name}[/bold cyan] [dim]({profile})[/dim]")
+        self.console.print(f"  Risk: [{risk_color}]{risk}[/{risk_color}] | Findings: {len(findings)}")
+        
+        if findings:
+            for f in findings[:5]:  # Show top 5
+                sev = f.get('severity', 'UNK')
+                title = f.get('title', 'Unknown Issue')
+                line = f.get('line_number', '?')
+                sev_color = {
+                    "CRITICAL": "red",
+                    "HIGH": "yellow",
+                    "MEDIUM": "cyan",
+                    "LOW": "dim"
+                }.get(sev.upper(), "white")
+                self.console.print(f"    [{sev_color}]●[/{sev_color}] {title} [dim](Line {line})[/dim]")
+            if len(findings) > 5:
+                self.console.print(f"    [dim]... and {len(findings) - 5} more[/dim]")
+    
+    def run_prioritization_stage(self, all_files: List[Path]) -> Optional[List[Path]]:
+        """Prioritize files using AI - returns list of prioritized file paths."""
+        if not self.prioritize or not all_files:
+            return None
+        
+        self.console.print("\n[bold cyan]🎯 Stage 1: Prioritization[/bold cyan]")
+        self.console.print(f"[dim]Analyzing {len(all_files)} files to identify top {self.prioritize_top} most relevant...[/dim]")
+        
+        try:
+            prompt = PromptFactory.prioritization(all_files, self.question, self.prioritize_top)
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            raw = response.content[0].text.strip()
+            
+            if self.debug:
+                self.console.print(Panel(raw, title="[dim]RAW API RESPONSE (Prioritization)[/dim]", border_style="dim"))
+            
+            parsed = parse_json_response(raw)
+            if parsed and isinstance(parsed.get("prioritized_files"), list):
+                prioritized_info = parsed["prioritized_files"]
+                
+                # Create table showing prioritized files
+                table = Table(title="[bold green]AI-Prioritized Files[/bold green]", show_header=True, header_style="bold magenta")
+                table.add_column("File Name", style="cyan", width=40)
+                table.add_column("Reason for Selection", style="magenta")
+                
+                for item in prioritized_info:
+                    table.add_row(
+                        item.get("file_name", "N/A"),
+                        item.get("reason", "N/A")
+                    )
+                
+                self.console.print(table)
+                
+                # Interactive prompt
+                while True:
+                    prompt_text = f"\n[?] Proceed with all {len(prioritized_info)} files? ([Y]es / [N]o / Enter a number to analyze less): "
+                    choice = input(prompt_text).strip().lower()
+                    
+                    if choice in ("y", "yes", ""):
+                        break
+                    elif choice in ("n", "no"):
+                        self.console.print("[yellow]Analysis aborted by user.[/yellow]")
+                        sys.exit(0)
+                    elif choice.isdigit():
+                        num_to_analyze = int(choice)
+                        if 0 < num_to_analyze <= len(prioritized_info):
+                            prioritized_info = prioritized_info[:num_to_analyze]
+                            self.console.print(f"[dim]Proceeding with the top {num_to_analyze} file(s).[/dim]")
+                            break
+                        else:
+                            self.console.print(f"[red]Please enter a number between 1 and {len(prioritized_info)}.[/red]")
+                    else:
+                        self.console.print("[red]Invalid input. Please enter 'y', 'n', or a number.[/red]")
+                
+                # Map file names back to Path objects
+                # Use a smarter matching strategy: prefer unique matches, handle duplicates
+                prioritized_filenames = {item["file_name"] for item in prioritized_info if "file_name" in item}
+                prioritized_paths = []
+                matched_names = set()
+                
+                for filename in prioritized_filenames:
+                    matches = [p for p in all_files if p.name == filename]
+                    if len(matches) == 1:
+                        # Unique match - use it
+                        prioritized_paths.append(matches[0])
+                        matched_names.add(filename)
+                    elif len(matches) > 1:
+                        # Multiple matches - prefer the one closest to repo root (shallowest path)
+                        # This is a heuristic: usually the most important file is near the root
+                        best_match = min(matches, key=lambda p: len(p.parts))
+                        prioritized_paths.append(best_match)
+                        matched_names.add(filename)
+                        if self.verbose:
+                            self.console.print(f"[dim]  Note: '{filename}' found in {len(matches)} locations, selected: {best_match.relative_to(self.repo_path)}[/dim]")
+                
+                # Warn if we couldn't match some files
+                unmatched = prioritized_filenames - matched_names
+                if unmatched:
+                    self.console.print(f"[yellow]Warning: Could not find {len(unmatched)} prioritized file(s): {', '.join(list(unmatched)[:5])}[/yellow]")
+                
+                self.console.print(f"[green]✓[/green] Selected {len(prioritized_paths)} files for analysis\n")
+                return prioritized_paths
+            else:
+                self.console.print("[yellow]Could not parse prioritization response. Continuing with all files.[/yellow]")
+                return None
+        except Exception as e:
+            self.console.print(f"[red]Error during prioritization: {e}[/red]")
+            self.console.print("[yellow]Continuing with all files...[/yellow]")
+            return None
+
+    def run_ai_scanner(self) -> List[Finding]:
+        """Iterate over files, run AI analysis per profile, collect findings with Rich UI."""
+        all_files = self._get_files_to_scan()
+        
+        # Prioritization stage
+        files = self.run_prioritization_stage(all_files)
+        if files is None:
+            files = all_files
+        
+        all_ai_findings: List[Finding] = []
+        run_mode = "parallel" if self.parallel else "sequential"
+        
+        self.console.print(f"\n[bold cyan]🔍 Stage 2: Deep Dive Analysis[/bold cyan]")
+        self.console.print(f"[dim]Running Claude File-by-File Analysis ({run_mode} mode) on {len(files)} files[/dim]")
+        
+        file_profiles = [p for p in self.profiles if p != 'attacker']
+        for profile in file_profiles:
+            self.console.print(f"\n[bold yellow]--- Starting AI Profile: {profile} ---[/bold yellow]")
+            profile_findings: List[Finding] = []
+            
+            def process_and_log(full_result: Optional[Dict[str, Any]], fpath: Path) -> List[Finding]:
+                if not full_result:
+                    return []
+                if self.debug or self.verbose:
+                    self._print_live_claude_summary(fpath, full_result, profile)
+                findings_key = next((key for key in full_result if key.endswith("_findings")), None)
+                original_findings = full_result.get(findings_key, [])
+                processed: List[Finding] = []
+                for item in original_findings:
+                    if self._meets_severity_threshold(item.get("severity", "")):
+                        item['source'] = f'claude-{profile}'
+                        item['file'] = str(fpath)
+                        processed.append(item)
+                return processed
+            
+            # Use Rich progress bar with enhanced colors and spinners
+            with Progress(
+                SpinnerColumn(spinner_name="dots", style="cyan"),
+                TextColumn("[bold cyan]{task.description}[/bold cyan]"),
+                BarColumn(bar_width=None, style="cyan", complete_style="bold cyan", finished_style="bold green"),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                console=self.console,
+                transient=False,
+            ) as progress:
+                task = progress.add_task(f"[bold cyan]🔍 Analyzing {len(files)} files ({profile})...[/bold cyan]", total=len(files))
+                
+                for i, fpath in enumerate(files, 1):
+                    file_display = fpath.name if len(fpath.name) <= 40 else fpath.name[:37] + "..."
+                    progress.update(
+                        task,
+                        description=f"[bold cyan]⚡ Processing {i}/{len(files)}: [yellow]{file_display}[/yellow]...",
+                        refresh=True
+                    )
+                    
+                    if self.verbose:
+                        self.console.print(f"[dim]  [{i}/{len(files)}] Analyzing {file_display}...[/dim]")
+                    
+                    try:
+                        full_result = self._analyze_file_with_claude(fpath, profile)
+                        profile_findings.extend(process_and_log(full_result, fpath))
+                        if not self.parallel:
+                            time.sleep(0.3)  # Small delay to avoid rate limits
+                    except KeyboardInterrupt:
+                        self.console.print("\n[yellow]Analysis interrupted by user[/yellow]")
+                        raise
+                    except Exception as e:
+                        self.console.print(f"[red]Error analyzing {fpath}: {e}[/red]")
+                        if self.debug:
+                            import traceback
+                            self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    
+                    progress.advance(task)
+            
+            all_ai_findings.extend(profile_findings)
+            self.console.print(f"[green]✓[/green] Completed {profile} profile: Found {len(profile_findings)} issues (after filtering)")
+        
+        return all_ai_findings
+
+    def run_threat_model(self) -> None:
+        """Aggregate full repo context, run attacker-perspective threat model via Claude."""
+        self.console.print("\n[bold cyan]🎯 Stage 4: Threat Modeling[/bold cyan]")
+        self.console.print("[dim]Running attacker-perspective threat model...[/dim]")
+        files = self._get_files_to_scan()
+        full_context = "".join(
+            f"--- FILE: {fpath} ---\n{fpath.read_text(encoding='utf-8', errors='replace')}\n\n"
+            for fpath in files
+        )
+        if not full_context:
+            self.console.print("[yellow]No files found for threat model.[/yellow]")
+            return
+        try:
+            prompt = self.prompt_templates['attacker'].format(code=full_context)
+        except KeyError as e:
+            self.console.print(f"[red]Attacker template missing placeholder: {e}[/red]")
+            return
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4000,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                parsed = self._extract_json(resp.content[0].text.strip())
+                if parsed:
+                    report_file = self.output_path / "threat_model_report.json"
+                    with open(report_file, "w", encoding="utf-8") as f:
+                        json.dump(parsed, f, indent=2)
+                    self.console.print(f"[green]✓[/green] Threat model report written to {report_file}")
+                    return
+                else:
+                    self.console.print("[red]Claude did not return valid JSON for threat model[/red]")
+                    return
+            except anthropic.APIStatusError as e:
+                if e.status_code == 529 and attempt < MAX_RETRIES - 1:
+                    wait_time = 20
+                    self.console.print(f"[yellow]Claude API overloaded for threat model. Retrying in {wait_time}s...[/yellow]")
+                    time.sleep(wait_time)
+                else:
+                    self.console.print(f"[red]Threat model generation failed: {e}[/red]")
+                    return
+            except Exception as e:
+                self.console.print(f"[red]Threat model error: {e}[/red]")
+                return
+        self.console.print("[red]All retries failed for threat model generation[/red]")
+    
+    def run_payload_generation_stage(self, top_findings: List[Dict[str, Any]]) -> None:
+        """Generate Red/Blue team payloads for top findings."""
+        if not self.generate_payloads or not top_findings:
+            return
+        
+        self.console.print("\n[bold magenta]💣 Stage 4: Payload Generation[/bold magenta]")
+        self.console.print(f"[dim]Generating payloads for top {len(top_findings)} findings...[/dim]")
+        
+        with Progress(
+            SpinnerColumn(spinner_name="dots", style="magenta"),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=None, style="magenta", complete_style="bold magenta"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console,
+            transient=False,
+        ) as progress:
+            task = progress.add_task("[magenta]Generating payloads...", total=len(top_findings))
+            
+            for i, finding in enumerate(top_findings, 1):
+                file_path = Path(finding.get('file', ''))
+                if not file_path.exists():
+                    progress.advance(task)
+                    continue
+                
+                try:
+                    snippet = file_path.read_text(encoding="utf-8", errors="ignore")[:500]
+                except Exception:
+                    snippet = "Could not read snippet."
+                
+                # Create a simple finding-like object for the prompt
+                class FindingObj:
+                    def __init__(self, d):
+                        self.file_path = str(d.get('file', ''))
+                        self.line_number = d.get('line_number', d.get('line', 0))
+                        self.finding = d.get('title', d.get('rule_name', 'Unknown'))
+                
+                finding_obj = FindingObj(finding)
+                prompt = PromptFactory.payload_generation(finding_obj, snippet)
+                
+                progress.update(
+                    task,
+                    description=f"[magenta]Generating payload {i}/{len(top_findings)}: {file_path.name}...",
+                    refresh=True
+                )
+                
+                try:
+                    response = self.client.messages.create(
+                        model=self.model,
+                        max_tokens=2000,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    raw = response.content[0].text.strip()
+                    
+                    if self.debug:
+                        self.console.print(Panel(raw, title=f"[dim]RAW API RESPONSE (Payloads for {file_path.name})[/dim]", border_style="dim"))
+                    
+                    parsed = parse_json_response(raw)
+                    if parsed:
+                        rt = parsed.get("red_team_payload", {})
+                        bt = parsed.get("blue_team_payload", {})
+                        
+                        self.console.print(
+                            Panel(
+                                f"[bold red]🔴 Red Team[/bold red]\n"
+                                f"Payload: `{rt.get('payload', 'N/A')}`\n"
+                                f"{rt.get('explanation', 'N/A')}\n\n"
+                                f"[bold green]🔵 Blue Team[/bold green]\n"
+                                f"Payload: `{bt.get('payload', 'N/A')}`\n"
+                                f"{bt.get('explanation', 'N/A')}",
+                                title=f"💣 Payloads for '{finding.get('title', 'Unknown')}'",
+                                border_style="magenta",
+                            )
+                        )
+                except Exception as e:
+                    self.console.print(f"[red]Error generating payloads for {file_path}: {e}[/red]")
+                
+                progress.advance(task)
+                time.sleep(0.5)  # Small delay
+    
+    def run_annotation_stage(self, top_findings: List[Dict[str, Any]]) -> None:
+        """Generate annotated code snippets for top findings."""
+        if not self.annotate_code or not top_findings:
+            return
+        
+        self.console.print("\n[bold yellow]📝 Stage 5: Code Annotation[/bold yellow]")
+        self.console.print(f"[dim]Generating annotated code snippets for top {len(top_findings)} findings...[/dim]")
+        
+        with Progress(
+            SpinnerColumn(spinner_name="dots", style="yellow"),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=None, style="yellow", complete_style="bold yellow"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console,
+            transient=False,
+        ) as progress:
+            task = progress.add_task("[yellow]Annotating code...", total=len(top_findings))
+            
+            for i, finding in enumerate(top_findings, 1):
+                file_path = Path(finding.get('file', ''))
+                if not file_path.exists():
+                    progress.advance(task)
+                    continue
+                
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception as e:
+                    self.console.print(f"[red]Error reading {file_path}: {e}[/red]")
+                    progress.advance(task)
+                    continue
+                
+                # Create a simple finding-like object for the prompt
+                class FindingObj:
+                    def __init__(self, d):
+                        self.file_path = str(d.get('file', ''))
+                        self.line_number = d.get('line_number', d.get('line', 0))
+                        self.finding = d.get('title', d.get('rule_name', 'Unknown'))
+                        self.recommendation = d.get('recommendation', d.get('description', 'N/A'))
+                
+                finding_obj = FindingObj(finding)
+                prompt = PromptFactory.annotation(finding_obj, content)
+                
+                progress.update(
+                    task,
+                    description=f"[yellow]Annotating {i}/{len(top_findings)}: {file_path.name}...",
+                    refresh=True
+                )
+                
+                try:
+                    response = self.client.messages.create(
+                        model=self.model,
+                        max_tokens=2000,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    raw = response.content[0].text.strip()
+                    
+                    if self.debug:
+                        self.console.print(Panel(raw, title=f"[dim]RAW API RESPONSE (Annotation for {file_path.name})[/dim]", border_style="dim"))
+                    
+                    parsed = parse_json_response(raw)
+                    if parsed and "annotated_snippet" in parsed:
+                        snippet = parsed["annotated_snippet"]
+                        self.console.print(
+                            Panel(
+                                Syntax(snippet, "php", theme="monokai", line_numbers=True),
+                                title=f"📝 Annotated Code for '{finding.get('title', 'Unknown')}'",
+                                border_style="yellow",
+                            )
+                        )
+                        self.console.print(f"[green]✓[/green] Annotated snippet for [yellow]'{finding.get('title', 'Unknown')}'[/yellow]")
+                except Exception as e:
+                    self.console.print(f"[red]Error annotating {file_path}: {e}[/red]")
+                
+                progress.advance(task)
+                time.sleep(0.5)  # Small delay
+
+    def run(self) -> None:
+        """Execute static scan, AI analysis, merge, and export findings."""
+        static_findings = self.run_static_scanner()
+        for finding in static_findings:
+            finding['source'] = 'scrynet'
+        static_output_file = self.output_path / "static_findings.json"
+        with open(static_output_file, "w", encoding="utf-8") as f:
+            json.dump(static_findings, f, indent=2)
+        self.console.print(f"[dim]{len(static_findings)} static findings written to {static_output_file}[/dim]")
+
+        ai_findings = self.run_ai_scanner()
+        ai_output_file = self.output_path / "ai_findings.json"
+        with open(ai_output_file, "w", encoding="utf-8") as f:
+            json.dump(ai_findings, f, indent=2)
+        self.console.print(f"[dim]{len(ai_findings)} AI findings written to {ai_output_file}[/dim]")
+
+        self.console.print("\n[bold cyan]📊 Stage 3: Merging Results[/bold cyan]")
+        self.console.print("[dim]Merging and deduplicating findings...[/dim]")
+        combined: List[Finding] = []
+        seen: set[Tuple[Any, ...]] = set()
+        for f in static_findings + ai_findings:
+            key = (
+                Path(f.get('file', '')).as_posix(),
+                f.get('category', '').lower().strip(),
+                f.get('title', f.get('rule_name', '')).lower().strip(),
+                str(f.get('line_number', f.get('line', '')))
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(f)
+
+        combined.sort(
+            key=lambda x: (
+                Severity[x.get("severity", "LOW").upper()].value
+                if x.get("severity", "").upper() in Severity.__members__ else 99,
+                x.get("file", ""),
+                str(x.get("line_number", x.get("line", "")))
+            )
+        )
+
+        combined_output_file = self.output_path / "combined_findings.json"
+        with open(combined_output_file, "w", encoding="utf-8") as f:
+            json.dump(combined, f, indent=2)
+        self.console.print(f"[green]✓[/green] {len(combined)} combined findings written to {combined_output_file}")
+
+        csv_output_file = self.output_path / "combined_findings.csv"
+        with open(csv_output_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Severity", "File", "Line", "Category", "Title", "Source"])
+            for item in combined:
+                writer.writerow([
+                    item.get("severity", ""),
+                    item.get("file", ""),
+                    item.get("line_number", item.get("line", "")),
+                    item.get("category", ""),
+                    item.get("title", item.get("rule_name", "")),
+                    item.get("source", "")
+                ])
+        self.console.print(f"[green]✓[/green] CSV export written to {csv_output_file}")
+
+        md_output_file = self.output_path / "combined_findings.md"
+        with open(md_output_file, "w", encoding="utf-8") as f:
+            f.write("| Severity | File | Line | Category | Title | Source |\n")
+            f.write("|----------|------|------|----------|-------|--------|\n")
+            for item in combined:
+                f.write(
+                    f"| {item.get('severity','')} "
+                    f"| {item.get('file','')} "
+                    f"| {item.get('line_number', item.get('line',''))} "
+                    f"| {item.get('category','')} "
+                    f"| {item.get('title', item.get('rule_name',''))} "
+                    f"| {item.get('source','')} |\n"
+                )
+        self.console.print(f"[green]✓[/green] Markdown export written to {md_output_file}")
+
+        # Get top findings for payload generation and annotation
+        top_findings = sorted(
+            combined,
+            key=lambda x: (
+                Severity[x.get("severity", "LOW").upper()].value
+                if x.get("severity", "").upper() in Severity.__members__ else 99,
+            ),
+            reverse=True
+        )[:self.top_n]
+        
+        # Run payload generation if requested
+        if self.generate_payloads:
+            self.run_payload_generation_stage(top_findings)
+        
+        # Run code annotation if requested
+        if self.annotate_code:
+            self.run_annotation_stage(top_findings)
+        
+        if self.threat_model:
+            self.run_threat_model()
+        
+        # Final summary
+        self.console.print("\n[bold green]✨ Analysis Complete![/bold green]")
+        self.console.print(f"[dim]Total findings: {len(combined)} (Static: {len(static_findings)}, AI: {len(ai_findings)})[/dim]")
+
+
+def main() -> None:
+    """CLI parser and entrypoint."""
+    parser = argparse.ArgumentParser(
+        description="Orchestrator for scrynet and Claude scanners.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("repo_path", type=Path, help="Path to repo to scan.")
+    parser.add_argument("scanner_bin", type=Path, help="Path to scrynet scanner binary.")
+    parser.add_argument("--profile", type=str.lower, default="owasp",
+                        help="Comma-separated list of AI profiles (e.g., 'owasp,performance').")
+    parser.add_argument("--static-rules", type=str,
+                        help="Comma-separated paths to static rule files for scrynet.")
+    parser.add_argument("--severity", type=str.upper,
+                        choices=[s.name for s in Severity],
+                        help="Minimum severity to report.")
+    parser.add_argument("--threat-model", action="store_true",
+                        help="Perform repo-level attacker-perspective threat model.")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Run Claude analysis in parallel.")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show progress bars + live results.")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug mode for troubleshooting.")
+    parser.add_argument("--model", type=str, default=CLAUDE_MODEL,
+                        help=f"Claude model to use (default: {CLAUDE_MODEL})")
+    parser.add_argument("--prioritize", action="store_true",
+                        help="Enable AI prioritization to select top files for analysis (saves time and cost)")
+    parser.add_argument("--prioritize-top", type=int, default=15,
+                        help="Number of top files to prioritize (default: 15)")
+    parser.add_argument("--question", type=str,
+                        help="Analysis question for prioritization (default: 'find security vulnerabilities')")
+    parser.add_argument("--generate-payloads", action="store_true",
+                        help="Generate Red/Blue team payloads for top findings")
+    parser.add_argument("--annotate-code", action="store_true",
+                        help="Generate annotated code snippets showing flaws and fixes")
+    parser.add_argument("--top-n", type=int, default=5,
+                        help="Number of top findings for payload/annotation generation (default: 5)")
+    args = parser.parse_args()
+
+    console = Console()
+    if not args.repo_path.is_dir():
+        console.print(f"[red]Error: '{args.repo_path}' is not a directory[/red]")
+        sys.exit(1)
+    if not args.scanner_bin.is_file() or not os.access(args.scanner_bin, os.X_OK):
+        console.print(f"[red]Error: scanner binary '{args.scanner_bin}' not found or not executable[/red]")
+        sys.exit(1)
+
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+
+    orchestrator = Orchestrator(
+        repo_path=args.repo_path,
+        scanner_bin=args.scanner_bin,
+        parallel=args.parallel,
+        debug=args.debug,
+        severity=args.severity,
+        profiles=args.profile,
+        static_rules=args.static_rules,
+        threat_model=args.threat_model,
+        verbose=args.verbose,
+        model=args.model,
+        prioritize=args.prioritize,
+        prioritize_top=args.prioritize_top,
+        question=args.question,
+        generate_payloads=args.generate_payloads,
+        annotate_code=args.annotate_code,
+        top_n=args.top_n
+    )
+    orchestrator.run()
+
+
+if __name__ == "__main__":
+    main()
+
