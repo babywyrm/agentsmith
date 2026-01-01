@@ -116,6 +116,9 @@ gen/
 **/*api*key*
 **/*secret*
 
+# Archive directory (old/unused code)
+__archive/
+
 # OS-specific
 Thumbs.db
 ehthumbs.db
