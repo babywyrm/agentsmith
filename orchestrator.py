@@ -26,6 +26,7 @@ from rich.syntax import Syntax
 # Import prioritization support
 from lib.common import parse_json_response
 from lib.prompts import PromptFactory
+from lib.deduplication import deduplicate_findings
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
@@ -74,7 +75,8 @@ class Orchestrator:
                  threat_model: bool, verbose: bool, model: Optional[str] = None,
                  prioritize: bool = False, prioritize_top: int = 15, question: Optional[str] = None,
                  generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5,
-                 export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None):
+                 export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None,
+                 deduplicate: bool = False, dedupe_threshold: float = 0.7, dedupe_strategy: str = "keep_highest_severity"):
         self.repo_path = repo_path.resolve()
         self.scanner_bin = scanner_bin.resolve()
         self.parallel = parallel
@@ -92,6 +94,9 @@ class Orchestrator:
         self.annotate_code = annotate_code
         self.top_n = top_n
         self.export_formats = export_formats or ['json', 'csv', 'markdown']
+        self.deduplicate = deduplicate
+        self.dedupe_threshold = dedupe_threshold
+        self.dedupe_strategy = dedupe_strategy
         
         # Rich console for better UX
         self.console = Console()
@@ -896,7 +901,12 @@ class Orchestrator:
         self.console.print(f"[dim]{len(ai_findings)} AI findings written to {ai_output_file}[/dim]")
 
         self.console.print("\n[bold cyan]📊 Stage 3: Merging Results[/bold cyan]")
-        self.console.print("[dim]Merging and deduplicating findings...[/dim]")
+        if self.deduplicate:
+            self.console.print(f"[dim]Merging and deduplicating findings (similarity: {self.dedupe_threshold}, strategy: {self.dedupe_strategy})...[/dim]")
+        else:
+            self.console.print("[dim]Merging findings (basic deduplication)...[/dim]")
+        
+        # Basic exact-match deduplication first
         combined: List[Finding] = []
         seen: set[Tuple[Any, ...]] = set()
         for f in static_findings + ai_findings:
@@ -910,6 +920,18 @@ class Orchestrator:
                 continue
             seen.add(key)
             combined.append(f)
+        
+        # Apply intelligent deduplication if enabled
+        if self.deduplicate and len(self.profiles) > 1:
+            original_count = len(combined)
+            combined = deduplicate_findings(
+                combined,
+                similarity_threshold=self.dedupe_threshold,
+                merge_strategy=self.dedupe_strategy
+            )
+            deduped_count = original_count - len(combined)
+            if deduped_count > 0:
+                self.console.print(f"[dim]   Deduplicated {deduped_count} similar findings from multiple profiles[/dim]")
 
         combined.sort(
             key=lambda x: (
@@ -1032,6 +1054,13 @@ def main() -> None:
                         help='Report export formats (default: json, csv, markdown)')
     parser.add_argument("--output-dir", type=Path,
                         help='Custom output directory for reports (default: ./output)')
+    parser.add_argument("--deduplicate", action="store_true",
+                        help="Enable intelligent deduplication of similar findings from multiple profiles")
+    parser.add_argument("--dedupe-threshold", type=float, default=0.7,
+                        help="Similarity threshold for deduplication (0.0-1.0, default: 0.7)")
+    parser.add_argument("--dedupe-strategy", type=str, default="keep_highest_severity",
+                        choices=["keep_highest_severity", "keep_first", "merge"],
+                        help="Deduplication strategy: keep_highest_severity (default), keep_first, or merge")
     args = parser.parse_args()
 
     console = Console()
@@ -1063,7 +1092,10 @@ def main() -> None:
         annotate_code=args.annotate_code,
         top_n=args.top_n,
         export_formats=args.export_format,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        deduplicate=args.deduplicate,
+        dedupe_threshold=args.dedupe_threshold,
+        dedupe_strategy=args.dedupe_strategy
     )
     orchestrator.run()
 

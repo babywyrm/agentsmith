@@ -10,6 +10,7 @@ This directory contains additional documentation for SCRYNET.
   - Combining multiple profiles
 
 - **[TEST_PROFILES.md](TEST_PROFILES.md)** - Comprehensive test examples
+- **[ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md)** - Advanced multi-profile and deduplication examples
   - Full-featured test commands for all profiles
   - Verification checklists
   - Troubleshooting guide

@@ -260,6 +260,13 @@ def main():
                               help='Report export formats (default: json, csv, markdown)')
     hybrid_parser.add_argument('--output-dir', type=Path,
                               help='Custom output directory for reports (default: ./output)')
+    hybrid_parser.add_argument('--deduplicate', action='store_true',
+                              help='Enable intelligent deduplication of similar findings from multiple profiles')
+    hybrid_parser.add_argument('--dedupe-threshold', type=float, default=0.7,
+                              help='Similarity threshold for deduplication (0.0-1.0, default: 0.7)')
+    hybrid_parser.add_argument('--dedupe-strategy', type=str, default='keep_highest_severity',
+                              choices=['keep_highest_severity', 'keep_first', 'merge'],
+                              help='Deduplication strategy: keep_highest_severity (default), keep_first, or merge')
     
     args = parser.parse_args()
     

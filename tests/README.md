@@ -23,15 +23,15 @@ This directory contains the Python test suite for SCRYNET.
   - Profile template loading
   - Profile placeholder validation
 
-### Legacy/Reference Files
+### Reference Files
 
-The following files are kept for reference but may be outdated:
+The following files are kept for reference:
 
 - **`IMPROVEMENTS.md`** - Historical improvement notes from beta development
-- **`REVIEW_STATE.md`** - Documentation for review state features (may need updates)
-- **`SCRYNET_CONTEXT_README.md`** - Documentation for context library (see `lib/scrynet_context.py`)
-- **`test_context_lib.py`** - Test for context library (may need path updates)
+- **`test_context_lib.py`** - Test for context library
 - **`scrynet_context_example.py`** - Example usage of context library
+
+**Note**: Documentation for review state and context library has been moved to `docs/` directory.
 
 ## Running Tests
 
