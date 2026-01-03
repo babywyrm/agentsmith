@@ -119,6 +119,9 @@ gen/
 # Archive directory (old/unused code)
 __archive/
 
+# Setup scripts (keep these, but ignore any generated files)
+# setup.sh and activate.sh are tracked
+
 # OS-specific
 Thumbs.db
 ehthumbs.db

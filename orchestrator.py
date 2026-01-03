@@ -998,7 +998,7 @@ def main() -> None:
     parser.add_argument("repo_path", type=Path, help="Path to repo to scan.")
     parser.add_argument("scanner_bin", type=Path, help="Path to scrynet scanner binary.")
     parser.add_argument("--profile", type=str.lower, default="owasp",
-                        help="Comma-separated list of AI profiles (e.g., 'owasp,performance').")
+                        help="Comma-separated list of AI profiles. Available: owasp, ctf, code_review, modern, soc2, pci, compliance, performance, attacker (e.g., 'owasp,ctf' or 'soc2,compliance').")
     parser.add_argument("--static-rules", type=str,
                         help="Comma-separated paths to static rule files for scrynet.")
     parser.add_argument("--severity", type=str.upper,
