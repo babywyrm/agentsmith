@@ -668,9 +668,13 @@ class Orchestrator:
                 finding_obj = FindingObj(finding)
                 prompt = PromptFactory.payload_generation(finding_obj, snippet)
                 
+                # Show finding details in progress
+                finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
+                line_num = finding.get('line_number', finding.get('line', '?'))
+                severity = finding.get('severity', 'UNKNOWN')
                 progress.update(
                     task,
-                    description=f"[magenta]Generating payload {i}/{len(top_findings)}: {file_path.name}...",
+                    description=f"[magenta]Generating payload {i}/{len(top_findings)}: {finding_title} ({file_path.name}:L{line_num}) [{severity}]...",
                     refresh=True
                 )
                 
@@ -699,8 +703,14 @@ class Orchestrator:
                         recommendation = finding.get('recommendation') or finding.get('fix') or finding.get('explanation') or finding.get('description') or 'N/A'
                         
                         # Create detailed header with full context
+                        # Show which profiles found this (if deduplicated)
+                        profile_info = ""
+                        if finding.get('profiles') and len(finding.get('profiles', [])) > 1:
+                            profiles_list = [p.replace('claude-', '') for p in finding.get('profiles', [])]
+                            profile_info = f" [dim](Found by: {', '.join(profiles_list)})[/dim]"
+                        
                         location_info = f"[bold cyan]📍 Location:[/bold cyan] {file_path} [dim](Line {line_num})[/dim]"
-                        finding_info = f"[bold yellow]🔍 Finding:[/bold yellow] {finding_title} [dim][{severity}][/dim]"
+                        finding_info = f"[bold yellow]🔍 Finding:[/bold yellow] {finding_title} [dim][{severity}][/dim]{profile_info}"
                         recommendation_info = f"[bold green]💡 Fix/Recommendation:[/bold green] {recommendation}"
                         
                         self.console.print(
@@ -794,9 +804,13 @@ class Orchestrator:
                 finding_obj = FindingObj(finding)
                 prompt = PromptFactory.annotation(finding_obj, content)
                 
+                # Show finding details in progress
+                finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
+                line_num = finding.get('line_number', finding.get('line', '?'))
+                severity = finding.get('severity', 'UNKNOWN')
                 progress.update(
                     task,
-                    description=f"[yellow]Annotating {i}/{len(top_findings)}: {file_path.name}...",
+                    description=f"[cyan]Annotating {i}/{len(top_findings)}: {finding_title} ({file_path.name}:L{line_num}) [{severity}]...",
                     refresh=True
                 )
                 
@@ -828,8 +842,14 @@ class Orchestrator:
                         language = SUPPORTED_EXTENSIONS.get(file_ext, 'text')
                         
                         # Create detailed header
+                        # Show which profiles found this (if deduplicated)
+                        profile_info = ""
+                        if finding.get('profiles') and len(finding.get('profiles', [])) > 1:
+                            profiles_list = [p.replace('claude-', '') for p in finding.get('profiles', [])]
+                            profile_info = f" [dim](Found by: {', '.join(profiles_list)})[/dim]"
+                        
                         location_info = f"[bold cyan]📍 File:[/bold cyan] {file_path} [dim]| Line: {line_num} | Severity: [{severity}][/dim]"
-                        finding_info = f"[bold yellow]🔍 Issue:[/bold yellow] {finding_title}"
+                        finding_info = f"[bold yellow]🔍 Issue:[/bold yellow] {finding_title}{profile_info}"
                         recommendation_info = f"[bold green]💡 Recommendation:[/bold green] {recommendation}"
                         
                         self.console.print(f"\n{location_info}")
@@ -922,6 +942,8 @@ class Orchestrator:
             combined.append(f)
         
         # Apply intelligent deduplication if enabled
+        deduped_count = 0
+        deduplicated_findings = []
         if self.deduplicate and len(self.profiles) > 1:
             original_count = len(combined)
             combined = deduplicate_findings(
@@ -931,7 +953,11 @@ class Orchestrator:
             )
             deduped_count = original_count - len(combined)
             if deduped_count > 0:
-                self.console.print(f"[dim]   Deduplicated {deduped_count} similar findings from multiple profiles[/dim]")
+                # Find which findings were deduplicated (have profiles field)
+                deduplicated_findings = [f for f in combined if f.get('profiles') and len(f.get('profiles', [])) > 1]
+                self.console.print(f"[green]✓[/green] Deduplicated {deduped_count} similar findings from multiple profiles")
+                if self.verbose and deduplicated_findings:
+                    self.console.print(f"[dim]   Found {len(deduplicated_findings)} findings detected by multiple profiles[/dim]")
 
         combined.sort(
             key=lambda x: (
@@ -1002,13 +1028,65 @@ class Orchestrator:
         # Run code annotation if requested
         if self.annotate_code:
             self.run_annotation_stage(top_findings)
-        
+
         if self.threat_model:
             self.run_threat_model()
         
         # Final summary
         self.console.print("\n[bold green]✨ Analysis Complete![/bold green]")
-        self.console.print(f"[dim]Total findings: {len(combined)} (Static: {len(static_findings)}, AI: {len(ai_findings)})[/dim]")
+        
+        # Calculate breakdowns
+        severity_counts = {}
+        profile_counts = {}
+        for f in combined:
+            sev = f.get('severity', 'UNKNOWN').upper()
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            
+            source = f.get('source', 'unknown')
+            if source:
+                profile_counts[source] = profile_counts.get(source, 0) + 1
+        
+        # Build summary table
+        from rich.table import Table as RichTable
+        
+        summary_table = RichTable(show_header=False, box=None, padding=(0, 1))
+        summary_table.add_column(style="bold cyan")
+        summary_table.add_column()
+        
+        # Total findings with deduplication note
+        total_note = ""
+        if deduped_count > 0:
+            total_note = f" (deduplicated {deduped_count} similar findings)"
+        summary_table.add_row("Total Findings:", f"[bold]{len(combined)}[/bold]{total_note}")
+        
+        # Breakdown by source
+        summary_table.add_row("", "")  # Spacer
+        summary_table.add_row("[bold]By Source:[/bold]", "")
+        for source, count in sorted(profile_counts.items()):
+            source_display = source.replace('claude-', '').replace('scrynet', 'Static Scanner')
+            summary_table.add_row(f"  • {source_display}:", str(count))
+        
+        # Breakdown by severity
+        summary_table.add_row("", "")  # Spacer
+        summary_table.add_row("[bold]By Severity:[/bold]", "")
+        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+            if sev in severity_counts:
+                count = severity_counts[sev]
+                color = {"CRITICAL": "red", "HIGH": "yellow", "MEDIUM": "blue", "LOW": "dim"}.get(sev, "")
+                summary_table.add_row(f"  • {sev}:", f"[{color}]{count}[/{color}]")
+        
+        # Deduplication summary
+        if deduped_count > 0 and deduplicated_findings:
+            summary_table.add_row("", "")  # Spacer
+            summary_table.add_row("[bold]Deduplication:[/bold]", f"[green]{len(deduplicated_findings)} findings found by multiple profiles[/green]")
+        
+        self.console.print(summary_table)
+        
+        # Show original counts for clarity
+        if deduped_count > 0:
+            self.console.print(f"[dim]Original counts: Static: {len(static_findings)}, AI: {len(ai_findings)} → Combined: {len(combined)} (after deduplication)[/dim]")
+        else:
+            self.console.print(f"[dim]Breakdown: Static: {len(static_findings)}, AI: {len(ai_findings)}[/dim]")
 
 
 def main() -> None:
