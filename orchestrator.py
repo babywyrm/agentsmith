@@ -27,6 +27,8 @@ from rich.syntax import Syntax
 from lib.common import parse_json_response
 from lib.prompts import PromptFactory
 from lib.deduplication import deduplicate_findings
+from lib.cost_tracker import CostTracker
+from lib.cost_estimator import estimate_scan_cost
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
@@ -97,6 +99,9 @@ class Orchestrator:
         self.deduplicate = deduplicate
         self.dedupe_threshold = dedupe_threshold
         self.dedupe_strategy = dedupe_strategy
+        
+        # Initialize cost tracker
+        self.cost_tracker = CostTracker()
         
         # Rich console for better UX
         self.console = Console()
@@ -243,6 +248,14 @@ class Orchestrator:
                         max_tokens=3000,
                         messages=[{"role": "user", "content": prompt}]
                     )
+                    # Track cost for this API call
+                    self.cost_tracker.record_from_response(
+                        response=resp,
+                        stage="analysis",
+                        model=self.model,
+                        profile=profile,
+                        file=str(file_path)
+                    )
                     parsed = self._extract_json(resp.content[0].text.strip())
                     if parsed:
                         return parsed
@@ -307,6 +320,12 @@ class Orchestrator:
                 model=self.model,
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}]
+            )
+            # Track cost for prioritization
+            self.cost_tracker.record_from_response(
+                response=response,
+                stage="prioritization",
+                model=self.model
             )
             raw = response.content[0].text.strip()
             
@@ -392,9 +411,16 @@ class Orchestrator:
         all_files = self._get_files_to_scan()
         
         # Prioritization stage
+        if self.debug:
+            logger.debug(f"Prioritization enabled: {self.prioritize}, files: {len(all_files)}")
         files = self.run_prioritization_stage(all_files)
         if files is None:
+            if self.prioritize:
+                logger.warning(f"Prioritization was enabled but returned None (files: {len(all_files)})")
             files = all_files
+        else:
+            if self.verbose:
+                self.console.print(f"[dim]Using {len(files)} prioritized files (from {len(all_files)} total)[/dim]")
         
         all_ai_findings: List[Finding] = []
         run_mode = "parallel" if self.parallel else "sequential"
@@ -496,6 +522,12 @@ class Orchestrator:
                     model=self.model,
                     max_tokens=4000,
                     messages=[{"role": "user", "content": prompt}]
+                )
+                # Track cost for threat modeling
+                self.cost_tracker.record_from_response(
+                    response=resp,
+                    stage="threat_modeling",
+                    model=self.model
                 )
                 parsed = self._extract_json(resp.content[0].text.strip())
                 if parsed:
@@ -684,6 +716,15 @@ class Orchestrator:
                         max_tokens=2000,
                         messages=[{"role": "user", "content": prompt}]
                     )
+                    # Track cost for payload generation
+                    finding_id = f"{file_path.name}:L{line_num}"
+                    self.cost_tracker.record_from_response(
+                        response=response,
+                        stage="payload_generation",
+                        model=self.model,
+                        file=str(file_path),
+                        finding_id=finding_id
+                    )
                     raw = response.content[0].text.strip()
                     
                     if self.debug:
@@ -820,6 +861,15 @@ class Orchestrator:
                         max_tokens=2000,
                         messages=[{"role": "user", "content": prompt}]
                     )
+                    # Track cost for annotation
+                    finding_id = f"{file_path.name}:L{line_num}"
+                    self.cost_tracker.record_from_response(
+                        response=response,
+                        stage="annotation",
+                        model=self.model,
+                        file=str(file_path),
+                        finding_id=finding_id
+                    )
                     raw = response.content[0].text.strip()
                     
                     if self.debug:
@@ -903,6 +953,21 @@ class Orchestrator:
                 
                 progress.advance(task)
                 time.sleep(0.5)  # Small delay
+
+    def estimate_cost(self) -> Dict[str, Any]:
+        """Estimate cost before running the scan."""
+        all_files = self._get_files_to_scan()
+        return estimate_scan_cost(
+            files=all_files,
+            model=self.model,
+            profiles=self.profiles,
+            prioritize=self.prioritize,
+            prioritize_top=self.prioritize_top,
+            generate_payloads=self.generate_payloads,
+            annotate_code=self.annotate_code,
+            top_n=self.top_n,
+            threat_model=self.threat_model
+        )
 
     def run(self) -> None:
         """Execute static scan, AI analysis, merge, and export findings."""
@@ -1099,6 +1164,49 @@ class Orchestrator:
             self.console.print(f"[dim]Original counts: Static: {len(static_findings)}, AI: {len(ai_findings)} → Combined: {len(combined)} (after deduplication)[/dim]")
         else:
             self.console.print(f"[dim]Breakdown: Static: {len(static_findings)}, AI: {len(ai_findings)}[/dim]")
+        
+        # Cost summary
+        if self.cost_tracker.calls:
+            self.console.print("\n[bold yellow]💰 Cost Summary[/bold yellow]")
+            cost_table = RichTable(show_header=False, box=None, padding=(0, 1))
+            cost_table.add_column(style="bold cyan")
+            cost_table.add_column()
+            
+            cost_table.add_row("Total API Calls:", f"[bold]{len(self.cost_tracker.calls)}[/bold]")
+            cost_table.add_row("Total Input Tokens:", f"{self.cost_tracker.total_input_tokens:,}")
+            cost_table.add_row("Total Output Tokens:", f"{self.cost_tracker.total_output_tokens:,}")
+            cost_table.add_row("Total Tokens:", f"[bold]{self.cost_tracker.total_tokens:,}[/bold]")
+            cost_table.add_row("Estimated Cost:", f"[bold green]${self.cost_tracker.total_cost:.4f}[/bold green]")
+            
+            # Breakdown by stage
+            stage_summary = self.cost_tracker.get_stage_summary()
+            if stage_summary:
+                cost_table.add_row("", "")  # Spacer
+                cost_table.add_row("[bold]By Stage:[/bold]", "")
+                for stage, stats in sorted(stage_summary.items()):
+                    cost_table.add_row(
+                        f"  • {stage.replace('_', ' ').title()}:",
+                        f"${stats['cost']:.4f} ({stats['calls']} calls, {stats['total_tokens']:,} tokens)"
+                    )
+            
+            # Breakdown by profile
+            profile_summary = self.cost_tracker.get_profile_summary()
+            if profile_summary and any(p != "unknown" for p in profile_summary):
+                cost_table.add_row("", "")  # Spacer
+                cost_table.add_row("[bold]By Profile:[/bold]", "")
+                for profile, stats in sorted(profile_summary.items()):
+                    if profile != "unknown":
+                        cost_table.add_row(
+                            f"  • {profile}:",
+                            f"${stats['cost']:.4f} ({stats['calls']} calls, {stats['total_tokens']:,} tokens)"
+                        )
+            
+            self.console.print(cost_table)
+            
+            # Export cost data
+            cost_output_file = self.output_path / "cost_tracking.json"
+            self.cost_tracker.export_to_json(cost_output_file)
+            self.console.print(f"[dim]💾 Cost tracking data saved to: {cost_output_file}[/dim]")
 
 
 def main() -> None:
@@ -1151,6 +1259,8 @@ def main() -> None:
     parser.add_argument("--dedupe-strategy", type=str, default="keep_highest_severity",
                         choices=["keep_highest_severity", "keep_first", "merge"],
                         help="Deduplication strategy: keep_highest_severity (default), keep_first, or merge")
+    parser.add_argument("--estimate-cost", action="store_true",
+                        help="Estimate API costs before running (does not execute scan)")
     args = parser.parse_args()
 
     console = Console()
@@ -1163,6 +1273,106 @@ def main() -> None:
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
+
+    # Handle cost estimation
+    if args.estimate_cost:
+        orchestrator = Orchestrator(
+            repo_path=args.repo_path,
+            scanner_bin=args.scanner_bin,
+            parallel=args.parallel,
+            debug=args.debug,
+            severity=args.severity,
+            profiles=args.profile,
+            static_rules=args.static_rules,
+            threat_model=args.threat_model,
+            verbose=True,  # Force verbose for estimation
+            model=args.model,
+            prioritize=args.prioritize,
+            prioritize_top=args.prioritize_top,
+            question=args.question,
+            generate_payloads=args.generate_payloads,
+            annotate_code=args.annotate_code,
+            top_n=args.top_n,
+            export_formats=args.export_format,
+            output_dir=args.output_dir,
+            deduplicate=args.deduplicate,
+            dedupe_threshold=args.dedupe_threshold,
+            dedupe_strategy=args.dedupe_strategy
+        )
+        
+        console.print("\n[bold yellow]💰 Cost Estimation[/bold yellow]")
+        console.print("=" * 60)
+        
+        estimate = orchestrator.estimate_cost()
+        all_files = orchestrator._get_files_to_scan()
+        
+        console.print(f"\n[bold]Configuration:[/bold]")
+        console.print(f"  Target: {args.repo_path}")
+        console.print(f"  Model: {estimate['model']}")
+        console.print(f"  Profiles: {', '.join(args.profile.split(','))}")
+        console.print(f"  Total files: {len(all_files)}")
+        if args.prioritize:
+            console.print(f"  Prioritization: [green]ENABLED[/green] (top {args.prioritize_top} files)")
+            console.print(f"  Files to analyze: {min(args.prioritize_top, len(all_files))} (prioritized)")
+        else:
+            console.print(f"  Prioritization: [dim]DISABLED[/dim]")
+            console.print(f"  Files to analyze: {len(all_files)}")
+        if args.generate_payloads:
+            console.print(f"  Payload generation: [green]ENABLED[/green] (top {args.top_n} findings)")
+        if args.annotate_code:
+            console.print(f"  Code annotation: [green]ENABLED[/green] (top {args.top_n} findings)")
+        if args.threat_model:
+            console.print(f"  Threat modeling: [green]ENABLED[/green]")
+        
+        console.print(f"\n[bold]Estimated Costs:[/bold]")
+        from rich.table import Table as RichTable
+        cost_table = RichTable(show_header=False, box=None, padding=(0, 1))
+        cost_table.add_column(style="bold cyan")
+        cost_table.add_column()
+        
+        cost_table.add_row("Total API Calls:", f"[bold]{estimate['total_calls']:,}[/bold]")
+        cost_table.add_row("Total Input Tokens:", f"{estimate['total_input_tokens']:,.0f}")
+        cost_table.add_row("Total Output Tokens:", f"{estimate['total_output_tokens']:,.0f}")
+        cost_table.add_row("Total Tokens:", f"[bold]{estimate['total_tokens']:,.0f}[/bold]")
+        cost_table.add_row("Estimated Cost:", f"[bold green]${estimate['total_estimated_cost']:.4f}[/bold green]")
+        
+        # Breakdown by stage
+        breakdown = estimate['breakdown_by_stage']
+        cost_table.add_row("", "")
+        cost_table.add_row("[bold]Breakdown by Stage:[/bold]", "")
+        
+        # Show main stages (not per-profile)
+        for stage in ["prioritization", "analysis", "payload_generation", "annotation", "threat_modeling"]:
+            if stage in breakdown:
+                stats = breakdown[stage]
+                cost_table.add_row(
+                    f"  • {stage.replace('_', ' ').title()}:",
+                    f"${stats['cost']:.4f} ({stats['calls']} calls, ~{stats['total_tokens']:,.0f} tokens)"
+                )
+        
+        # Show per-profile breakdown for analysis
+        if args.prioritize or len(args.profile.split(',')) > 1:
+            cost_table.add_row("", "")
+            cost_table.add_row("[bold]By Profile:[/bold]", "")
+            for key in breakdown:
+                if key.startswith("analysis_") and key != "analysis":
+                    profile = key.replace("analysis_", "")
+                    stats = breakdown[key]
+                    cost_table.add_row(
+                        f"  • {profile}:",
+                        f"${stats['cost']:.4f} (~{stats['calls']} calls)"
+                    )
+        
+        console.print(cost_table)
+        
+        console.print(f"\n[dim]Note: Estimates are approximate based on file sizes and typical usage patterns.[/dim]")
+        console.print(f"[dim]Actual costs may vary based on file complexity and AI response lengths.[/dim]")
+        console.print(f"\n[bold]Model Pricing:[/bold]")
+        pricing = estimate['model_pricing']
+        console.print(f"  Input: ${pricing['input_per_1M']:.2f} per 1M tokens")
+        console.print(f"  Output: ${pricing['output_per_1M']:.2f} per 1M tokens")
+        console.print(f"\n[yellow]Run without --estimate-cost to execute the scan.[/yellow]\n")
+        return
 
     orchestrator = Orchestrator(
         repo_path=args.repo_path,

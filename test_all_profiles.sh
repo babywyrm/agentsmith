@@ -55,3 +55,4 @@ done
 echo -e "${BLUE}✅ All profile tests complete!${NC}"
 echo "Check test-reports/ directory for results"
 
+

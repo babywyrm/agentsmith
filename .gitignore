@@ -17,6 +17,7 @@ scanner
 # Test targets (large repos, don't commit)
 *WebGoat*
 *DVWA*
+*juice-*
 test_targets/
 
 # Analysis outputs and reports (NEVER commit these - may contain sensitive data)

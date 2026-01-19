@@ -267,6 +267,8 @@ def main():
     hybrid_parser.add_argument('--dedupe-strategy', type=str, default='keep_highest_severity',
                               choices=['keep_highest_severity', 'keep_first', 'merge'],
                               help='Deduplication strategy: keep_highest_severity (default), keep_first, or merge')
+    hybrid_parser.add_argument('--estimate-cost', action='store_true',
+                              help='Estimate API costs before running (does not execute scan)')
     
     args = parser.parse_args()
     
