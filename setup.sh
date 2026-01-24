@@ -58,3 +58,4 @@ echo "You'll know it's activated when you see (.venv) in your prompt."
 echo ""
 
 
+

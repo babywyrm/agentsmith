@@ -236,3 +236,267 @@ def retry_with_backoff(
     return decorator
 
 
+# ============================================================================
+# Finding Normalization Utilities
+# ============================================================================
+
+def normalize_finding(
+    finding: dict,
+    file_path: Optional[Path | str] = None,
+    source: Optional[str] = None
+) -> dict:
+    """
+    Normalize a finding dictionary to ensure consistent field names and values.
+    
+    Handles:
+    - Recommendation field normalization (fix/explanation/recommendation/description)
+    - Description field normalization
+    - File path normalization (Path or string)
+    - Line number normalization (line_number vs line)
+    - Source field assignment
+    - Title/rule_name normalization
+    - Severity normalization (uppercase)
+    
+    Args:
+        finding: Finding dictionary to normalize
+        file_path: Optional file path to set/override
+        source: Optional source identifier (e.g., 'claude-owasp', 'scrynet')
+    
+    Returns:
+        Normalized finding dictionary (new dict, doesn't modify original)
+    """
+    normalized = finding.copy()
+    
+    # Normalize file path
+    if file_path:
+        normalized['file'] = str(file_path)
+    elif 'file' in normalized:
+        # Ensure file is a string, not Path object
+        normalized['file'] = str(normalized['file'])
+    
+    # Normalize line number (prefer 'line_number' over 'line')
+    if 'line_number' not in normalized and 'line' in normalized:
+        normalized['line_number'] = normalized['line']
+    elif 'line_number' in normalized and 'line' not in normalized:
+        normalized['line'] = normalized['line_number']
+    
+    # Normalize recommendation field (priority: recommendation > fix > explanation > description)
+    if 'recommendation' not in normalized or not normalized.get('recommendation'):
+        normalized['recommendation'] = (
+            normalized.get('fix') or 
+            normalized.get('explanation') or 
+            normalized.get('description') or 
+            'N/A'
+        )
+    
+    # Ensure description exists (priority: description > explanation > recommendation)
+    if 'description' not in normalized or not normalized.get('description'):
+        normalized['description'] = (
+            normalized.get('explanation') or 
+            normalized.get('recommendation') or 
+            'N/A'
+        )
+    
+    # Ensure explanation exists (for backward compatibility)
+    if 'explanation' not in normalized or not normalized.get('explanation'):
+        normalized['explanation'] = normalized.get('description', 'N/A')
+    
+    # Set source if provided
+    if source:
+        normalized['source'] = source
+    
+    # Ensure title exists (fallback to rule_name)
+    if 'title' not in normalized and 'rule_name' in normalized:
+        normalized['title'] = normalized['rule_name']
+    elif 'title' not in normalized:
+        normalized['title'] = normalized.get('category', 'Unknown Issue')
+    
+    # Ensure rule_name exists (for backward compatibility)
+    if 'rule_name' not in normalized and 'title' in normalized:
+        normalized['rule_name'] = normalized['title']
+    
+    # Ensure category exists
+    if 'category' not in normalized:
+        normalized['category'] = 'Security'
+    
+    # Ensure severity exists and is uppercase
+    if 'severity' in normalized:
+        normalized['severity'] = str(normalized['severity']).upper()
+    else:
+        normalized['severity'] = 'MEDIUM'  # Default severity
+    
+    return normalized
+
+
+def get_recommendation_text(finding: dict) -> str:
+    """
+    Extract recommendation text from a finding using fallback logic.
+    
+    Args:
+        finding: Finding dictionary
+    
+    Returns:
+        Recommendation text or 'N/A' if not found
+    """
+    return (
+        finding.get('recommendation') or 
+        finding.get('fix') or 
+        finding.get('explanation') or 
+        finding.get('description') or 
+        'N/A'
+    )
+
+
+def get_line_number(finding: dict) -> int | str:
+    """
+    Extract line number from a finding, handling both 'line' and 'line_number' fields.
+    
+    Args:
+        finding: Finding dictionary
+    
+    Returns:
+        Line number as int or string, or 0 if not found
+    """
+    line = finding.get('line_number') or finding.get('line', 0)
+    try:
+        return int(line) if line else 0
+    except (ValueError, TypeError):
+        return str(line) if line else 0
+
+
+# ============================================================================
+# Error Handling Utilities
+# ============================================================================
+
+class ScrynetError(Exception):
+    """Base exception for SCRYNET errors."""
+    pass
+
+
+class APIError(ScrynetError):
+    """Exception for API-related errors."""
+    def __init__(self, message: str, status_code: Optional[int] = None, original_error: Optional[Exception] = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.original_error = original_error
+
+
+class FileAnalysisError(ScrynetError):
+    """Exception for file analysis errors."""
+    def __init__(self, file_path: Path | str, message: str, original_error: Optional[Exception] = None):
+        super().__init__(f"Error analyzing {file_path}: {message}")
+        self.file_path = str(file_path)
+        self.original_error = original_error
+
+
+def handle_api_error(
+    error: Exception,
+    file_path: Optional[Path | str] = None,
+    max_retries: int = 3,
+    attempt: int = 0
+) -> tuple[bool, Optional[float]]:
+    """
+    Handle API errors and determine if retry is appropriate.
+    
+    Args:
+        error: The exception that occurred
+        file_path: Optional file path for context
+        max_retries: Maximum number of retries allowed
+        attempt: Current attempt number (0-indexed)
+    
+    Returns:
+        Tuple of (should_retry: bool, wait_time: Optional[float])
+        - should_retry: True if operation should be retried
+        - wait_time: Seconds to wait before retry (None if no retry)
+    
+    Raises:
+        APIError: For non-retryable errors or after max retries
+    """
+    import anthropic
+    
+    # Handle Anthropic API errors
+    if isinstance(error, anthropic.APIStatusError):
+        status_code = error.status_code
+        
+        # Rate limit (429) or overloaded (529) - retry with backoff
+        if status_code in (429, 529):
+            if attempt < max_retries - 1:
+                wait_time = min(2.0 ** (attempt + 1), 60.0)  # Exponential backoff, max 60s
+                return True, wait_time
+            else:
+                raise APIError(
+                    f"API rate limit exceeded after {max_retries} attempts",
+                    status_code=status_code,
+                    original_error=error
+                )
+        
+        # Client errors (4xx except 429) - don't retry
+        elif 400 <= status_code < 500:
+            raise APIError(
+                f"API client error: {error.message or str(error)}",
+                status_code=status_code,
+                original_error=error
+            )
+        
+        # Server errors (5xx) - retry
+        elif 500 <= status_code < 600:
+            if attempt < max_retries - 1:
+                wait_time = min(2.0 ** (attempt + 1), 30.0)  # Shorter backoff for server errors
+                return True, wait_time
+            else:
+                raise APIError(
+                    f"API server error after {max_retries} attempts: {error.message or str(error)}",
+                    status_code=status_code,
+                    original_error=error
+                )
+    
+    # Handle other API errors
+    elif isinstance(error, anthropic.APIError):
+        # Network errors, timeouts, etc. - retry
+        if attempt < max_retries - 1:
+            wait_time = min(2.0 ** (attempt + 1), 30.0)
+            return True, wait_time
+        else:
+            raise APIError(
+                f"API error after {max_retries} attempts: {str(error)}",
+                original_error=error
+            )
+    
+    # Unknown error - don't retry
+    raise APIError(
+        f"Unexpected API error: {str(error)}",
+        original_error=error
+    )
+
+
+def safe_file_read(file_path: Path, max_size: int = 10_000_000) -> str:
+    """
+    Safely read a file with size and error checking.
+    
+    Args:
+        file_path: Path to file to read
+        max_size: Maximum file size in bytes (default 10MB)
+    
+    Returns:
+        File contents as string
+    
+    Raises:
+        FileAnalysisError: If file cannot be read
+    """
+    try:
+        file_stat = file_path.stat()
+        if file_stat.st_size > max_size:
+            raise FileAnalysisError(
+                file_path,
+                f"File too large: {file_stat.st_size} bytes (max {max_size})"
+            )
+        
+        return file_path.read_text(encoding="utf-8", errors="replace")
+    
+    except (OSError, IOError, PermissionError) as e:
+        raise FileAnalysisError(file_path, f"File read error: {str(e)}", original_error=e)
+    except Exception as e:
+        raise FileAnalysisError(file_path, f"Unexpected error reading file: {str(e)}", original_error=e)
+
+
+

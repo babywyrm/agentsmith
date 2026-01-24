@@ -242,3 +242,4 @@ def estimate_scan_cost(
         }
     }
 
+

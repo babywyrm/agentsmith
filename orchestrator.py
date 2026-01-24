@@ -24,7 +24,16 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 # Import prioritization support
-from lib.common import parse_json_response
+from lib.common import (
+    parse_json_response,
+    normalize_finding,
+    get_recommendation_text,
+    get_line_number,
+    handle_api_error,
+    APIError,
+    FileAnalysisError,
+    safe_file_read
+)
 from lib.prompts import PromptFactory
 from lib.deduplication import deduplicate_findings
 from lib.cost_tracker import CostTracker
@@ -456,15 +465,9 @@ class Orchestrator:
                 processed: List[Finding] = []
                 for item in original_findings:
                     if self._meets_severity_threshold(item.get("severity", "")):
-                        item['source'] = f'claude-{profile}'
-                        item['file'] = str(fpath)
-                        # Normalize recommendation field - use 'fix' or 'explanation' if 'recommendation' is missing
-                        if 'recommendation' not in item or not item.get('recommendation'):
-                            item['recommendation'] = item.get('fix', item.get('explanation', item.get('description', 'N/A')))
-                        # Ensure we have a description/explanation
-                        if 'description' not in item:
-                            item['description'] = item.get('explanation', item.get('recommendation', 'N/A'))
-                        processed.append(item)
+                        # Use normalization utility
+                        normalized = normalize_finding(item, file_path=fpath, source=f'claude-{profile}')
+                        processed.append(normalized)
                 return processed
             
             # Use Rich progress bar with enhanced colors and spinners
@@ -642,11 +645,11 @@ class Orchestrator:
         for item in findings:
             sev = item.get('severity', 'UNKNOWN')
             file_path = item.get('file', '')
-            line_num = item.get('line_number', item.get('line', ''))
+            line_num = get_line_number(item)
             category = item.get('category', '')
             title = item.get('title', item.get('rule_name', ''))
             source = item.get('source', '')
-            recommendation = item.get('recommendation') or item.get('fix') or item.get('explanation') or item.get('description') or 'N/A'
+            recommendation = get_recommendation_text(item)
             # Truncate for table display
             rec_display = recommendation[:150] + "..." if len(recommendation) > 150 else recommendation
             
@@ -707,7 +710,7 @@ class Orchestrator:
                 class FindingObj:
                     def __init__(self, d):
                         self.file_path = str(d.get('file', ''))
-                        self.line_number = d.get('line_number', d.get('line', 0))
+                        self.line_number = get_line_number(d)
                         self.finding = d.get('title', d.get('rule_name', 'Unknown'))
                 
                 finding_obj = FindingObj(finding)
@@ -715,7 +718,7 @@ class Orchestrator:
                 
                 # Show finding details in progress
                 finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
-                line_num = finding.get('line_number', finding.get('line', '?'))
+                line_num = get_line_number(finding)
                 severity = finding.get('severity', 'UNKNOWN')
                 progress.update(
                     task,
@@ -750,11 +753,11 @@ class Orchestrator:
                         
                         # Extract file and line info
                         file_path = finding.get('file', 'Unknown')
-                        line_num = finding.get('line_number', finding.get('line', '?'))
+                        line_num = get_line_number(finding)
                         finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
                         severity = finding.get('severity', 'UNKNOWN')
-                        # Get recommendation/fix/explanation for context
-                        recommendation = finding.get('recommendation') or finding.get('fix') or finding.get('explanation') or finding.get('description') or 'N/A'
+                        # Get recommendation using utility
+                        recommendation = get_recommendation_text(finding)
                         
                         # Create detailed header with full context
                         # Show which profiles found this (if deduplicated)
@@ -786,8 +789,8 @@ class Orchestrator:
                         # Save to file for later reference
                         payload_file = self.output_path / "payloads" / f"payload_{Path(file_path).stem}_L{line_num}.json"
                         payload_file.parent.mkdir(parents=True, exist_ok=True)
-                        # Get recommendation from finding
-                        recommendation = finding.get('recommendation') or finding.get('fix') or finding.get('explanation') or finding.get('description') or 'N/A'
+                        # Get recommendation using utility
+                        recommendation = get_recommendation_text(finding)
                         payload_data = {
                             "file": file_path,
                             "line": line_num,
@@ -850,17 +853,17 @@ class Orchestrator:
                 class FindingObj:
                     def __init__(self, d):
                         self.file_path = str(d.get('file', ''))
-                        self.line_number = d.get('line_number', d.get('line', 0))
+                        self.line_number = get_line_number(d)
                         self.finding = d.get('title', d.get('rule_name', 'Unknown'))
-                        # Try multiple fields for recommendation
-                        self.recommendation = d.get('recommendation') or d.get('fix') or d.get('explanation') or d.get('description') or 'N/A'
+                        # Use normalization utility
+                        self.recommendation = get_recommendation_text(d)
                 
                 finding_obj = FindingObj(finding)
                 prompt = PromptFactory.annotation(finding_obj, content)
                 
                 # Show finding details in progress
                 finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
-                line_num = finding.get('line_number', finding.get('line', '?'))
+                line_num = get_line_number(finding)
                 severity = finding.get('severity', 'UNKNOWN')
                 progress.update(
                     task,
@@ -892,13 +895,13 @@ class Orchestrator:
                     if parsed and "annotated_snippet" in parsed:
                         snippet = parsed["annotated_snippet"]
                         
-                        # Extract file and line info
+                        # Extract file and line info using utilities
                         file_path = finding.get('file', 'Unknown')
-                        line_num = finding.get('line_number', finding.get('line', '?'))
+                        line_num = get_line_number(finding)
                         finding_title = finding.get('title', finding.get('rule_name', 'Unknown'))
                         severity = finding.get('severity', 'UNKNOWN')
-                        # Try multiple fields for recommendation (fix, explanation, recommendation, description)
-                        recommendation = finding.get('recommendation') or finding.get('fix') or finding.get('explanation') or finding.get('description') or 'N/A'
+                        # Use normalization utility for recommendation
+                        recommendation = get_recommendation_text(finding)
                         
                         # Detect language from file extension
                         file_ext = Path(file_path).suffix.lower()
@@ -1012,7 +1015,7 @@ class Orchestrator:
                 Path(f.get('file', '')).as_posix(),
                 f.get('category', '').lower().strip(),
                 f.get('title', f.get('rule_name', '')).lower().strip(),
-                str(f.get('line_number', f.get('line', '')))
+                str(get_line_number(f))
             )
             if key in seen:
                 continue
@@ -1056,11 +1059,14 @@ class Orchestrator:
             writer = csv.writer(f)
             writer.writerow(["Severity", "File", "Line", "Category", "Title", "Source", "Recommendation", "Impact", "Explanation"])
             for item in combined:
-                recommendation = item.get('recommendation') or item.get('fix') or item.get('explanation') or item.get('description') or ''
+                # Use normalization utilities
+                recommendation = get_recommendation_text(item)
+                line_num = get_line_number(item)
+                
                 writer.writerow([
                     item.get("severity", ""),
                     item.get("file", ""),
-                    item.get("line_number", item.get("line", "")),
+                    line_num,
                     item.get("category", ""),
                     item.get("title", item.get("rule_name", "")),
                     item.get("source", ""),
@@ -1075,13 +1081,15 @@ class Orchestrator:
             f.write("| Severity | File | Line | Category | Title | Source | Recommendation |\n")
             f.write("|----------|------|------|----------|-------|--------|----------------|\n")
             for item in combined:
-                recommendation = item.get('recommendation') or item.get('fix') or item.get('explanation') or item.get('description') or 'N/A'
+                recommendation = get_recommendation_text(item)
                 # Truncate long recommendations for table
                 rec_display = recommendation[:100] + "..." if len(recommendation) > 100 else recommendation
+                line_num = get_line_number(item)
+                
                 f.write(
                     f"| {item.get('severity','')} "
                     f"| `{item.get('file','')}` "
-                    f"| {item.get('line_number', item.get('line',''))} "
+                    f"| {line_num} "
                     f"| {item.get('category','')} "
                     f"| {item.get('title', item.get('rule_name',''))} "
                     f"| {item.get('source','')} "
