@@ -148,7 +148,7 @@ python3 scrynet.py ctf /path/to/ctf "find all vulnerabilities" \
 Combines fast static scanning with AI analysis - best of both worlds:
 
 ```bash
-python3 scrynet.py hybrid /path/to/repo ./scanner \
+python3 orchestrator.py /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -230,7 +230,7 @@ python3 scrynet.py analyze /path/to/repo --resume-review abc123def456
 
 ```bash
 # Focused SQL Injection Hunt with Prioritization
-python3 scrynet.py hybrid /path/to/repo ./scanner \
+python3 orchestrator.py /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -242,7 +242,7 @@ python3 scrynet.py hybrid /path/to/repo ./scanner \
   --verbose
 
 # Comprehensive Security Audit
-python3 scrynet.py hybrid /path/to/repo ./scanner \
+python3 orchestrator.py /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 25 \
@@ -255,7 +255,7 @@ python3 scrynet.py hybrid /path/to/repo ./scanner \
   --verbose
 
 # Fast Parallel Analysis (Large Repos)
-python3 scrynet.py hybrid /path/to/repo ./scanner \
+python3 orchestrator.py /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 15 \
@@ -406,7 +406,7 @@ python3 smart_analyzer.py /path/to/repo "question"
 # CTF analyzer (called by scrynet.py ctf)
 python3 ctf_analyzer.py /path/to/ctf "question"
 
-# Hybrid orchestrator (called by scrynet.py hybrid)
+# Hybrid orchestrator (use directly for all features)
 python3 orchestrator.py /path/to/repo ./scanner --profile owasp
 ```
 
@@ -471,7 +471,7 @@ python3 scrynet.py static . --severity HIGH
 **Comprehensive AI analysis (requires API key):**
 ```bash
 export CLAUDE_API_KEY="your_key_here"
-python3 scrynet.py hybrid . ./scanner \
+python3 orchestrator.py . ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -485,5 +485,5 @@ python3 scrynet.py hybrid . ./scanner \
 **Get help:**
 ```bash
 python3 scrynet.py --help
-python3 scrynet.py hybrid --help
+python3 orchestrator.py --help
 ```

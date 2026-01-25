@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-01-24
 
+### Important - Main Entry Point
+- **orchestrator.py** is now the recommended entry point for hybrid mode
+- Supports all new features: presets, smart defaults, quick wins, enhanced prompts
+- `scrynet.py` remains available as unified dispatcher for all modes
+- All documentation updated to use `orchestrator.py` for hybrid scans
+
 ### Added - Phase 3: Quick Wins & Enhanced Display
 
 - **Quick Wins System**
@@ -19,6 +25,13 @@ All notable changes to this project will be documented in this file.
   - Attack scenario previews in quick wins
   - Fixed color coding (CRITICAL/HIGH=red, MEDIUM=yellow, LOW=cyan)
   - Smart top-n calculation (scales with findings: 10-20% of total)
+
+- **File-Grouped Annotations** (Critical Fix)
+  - Annotations now group by file, not individual findings
+  - Selecting top N findings identifies important files
+  - Then annotates ALL findings in those files
+  - Result: 2x more comprehensive coverage
+  - Example: Top 9 findings → 6 files → 18 total annotations
 
 ### Added - Phase 2: Smart Presets & Enhanced Analysis
 
