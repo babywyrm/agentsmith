@@ -42,6 +42,8 @@ from lib.profile_metadata import list_profiles_by_category, get_all_profiles
 from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector
 from lib.tech_detector import EnhancedTechDetector, generate_framework_aware_prioritization_question
 from lib.universal_detector import UniversalTechDetector
+from lib.taint_tracker import TaintTracker, TaintAnalyzer
+from lib.flow_visualizer import FlowVisualizer
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
@@ -92,7 +94,7 @@ class Orchestrator:
                  generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5,
                  export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None,
                  deduplicate: bool = False, dedupe_threshold: float = 0.7, dedupe_strategy: str = "keep_highest_severity",
-                 show_quick_wins: bool = False):
+                 show_quick_wins: bool = False, track_taint: bool = False):
         self.repo_path = repo_path.resolve()
         self.scanner_bin = scanner_bin.resolve()
         self.parallel = parallel
@@ -114,6 +116,7 @@ class Orchestrator:
         self.dedupe_threshold = dedupe_threshold
         self.dedupe_strategy = dedupe_strategy
         self.show_quick_wins = show_quick_wins
+        self.track_taint = track_taint
         
         # Initialize cost tracker
         self.cost_tracker = CostTracker()
@@ -592,6 +595,76 @@ class Orchestrator:
         
         return all_ai_findings
 
+    def run_taint_analysis(self, findings: List[Dict[str, Any]]) -> None:
+        """
+        Run cross-file taint tracking to detect attack chains.
+        
+        Traces data flow from user input (sources) through the application
+        to dangerous functions (sinks) across multiple files.
+        """
+        self.console.print("\n[bold magenta]🔗 Stage: Cross-File Taint Tracking[/bold magenta]")
+        self.console.print("[dim]Analyzing data flow across files to detect attack chains...[/dim]")
+        
+        # Get files to analyze
+        files = self._get_files_to_scan()
+        
+        if not files:
+            self.console.print("[yellow]No files found for taint analysis.[/yellow]")
+            return
+        
+        # Initialize taint analyzer
+        analyzer = TaintAnalyzer(self.repo_path, files)
+        
+        with self.console.status("[bold magenta]🔍 Scanning for taint sources and sinks...[/bold magenta]", spinner="dots"):
+            potential_flows = analyzer.analyze()
+        
+        if not potential_flows:
+            self.console.print("[yellow]No taint flows detected.[/yellow]")
+            return
+        
+        self.console.print(f"[green]✓[/green] Found {len(analyzer.sources)} taint sources and {len(analyzer.sinks)} taint sinks")
+        self.console.print(f"[green]✓[/green] Identified {len(potential_flows)} potential attack chains")
+        
+        # Display attack chains
+        if potential_flows:
+            # Show summary first
+            summary = FlowVisualizer.create_summary_diagram(potential_flows)
+            self.console.print(summary)
+            
+            # Show detailed flows for high-confidence ones
+            high_confidence = [f for f in potential_flows if f.confidence >= 0.7]
+            if high_confidence:
+                detailed_viz = FlowVisualizer.visualize_multiple_flows(high_confidence, max_flows=5)
+                self.console.print(detailed_viz)
+            
+            # Export to JSON
+            taint_output = self.output_path / "attack_chains.json"
+            attack_chain_data = [{
+                'source': {
+                    'file': f.source.file,
+                    'line': f.source.line,
+                    'variable': f.source.variable,
+                    'type': f.source.source_type
+                },
+                'sink': {
+                    'file': f.sink.file,
+                    'line': f.sink.line,
+                    'function': f.sink.function,
+                    'type': f.sink.sink_type
+                },
+                'hops': [{'file': h[0], 'line': h[1], 'description': h[2]} for h in f.hops],
+                'sanitization': f.sanitization_attempts,
+                'exploitability_score': f.exploitability_score,
+                'confidence': f.confidence,
+                'is_exploitable': f.is_exploitable,
+                'file_count': f.file_count
+            } for f in potential_flows]
+            
+            with open(taint_output, 'w', encoding='utf-8') as f:
+                json.dump(attack_chain_data, f, indent=2)
+            
+            self.console.print(f"[green]✓[/green] Attack chains saved to {taint_output}")
+    
     def run_threat_model(self) -> None:
         """Aggregate full repo context, run attacker-perspective threat model via Claude."""
         self.console.print("\n[bold cyan]🎯 Stage 4: Threat Modeling[/bold cyan]")
@@ -1336,6 +1409,10 @@ class Orchestrator:
         if self.threat_model:
             self.run_threat_model()
         
+        # Run taint tracking if requested
+        if self.track_taint:
+            self.run_taint_analysis(combined)
+        
         # Final summary
         self.console.print("\n[bold green]✨ Analysis Complete![/bold green]")
         
@@ -1583,6 +1660,8 @@ def main() -> None:
                         help="Display quick win summary with most exploitable findings (auto-enabled for CTF presets)")
     parser.add_argument("--detect-tech-stack", action="store_true",
                         help="Display detailed tech stack detection and exit (shows frameworks, entry points, security files)")
+    parser.add_argument("--track-taint", action="store_true",
+                        help="Enable cross-file taint tracking to detect attack chains (shows data flow from sources to sinks)")
     args = parser.parse_args()
 
     console = Console()
@@ -1675,13 +1754,27 @@ def main() -> None:
         
         # Apply preset values (only if not explicitly overridden)
         preset_dict = preset.to_dict()
+        
+        # Track which args were explicitly set by user (not defaults)
+        explicitly_set = set()
+        for action in parser._actions:
+            if hasattr(action, 'dest') and action.dest in vars(args):
+                # Check if value differs from default
+                if hasattr(action, 'default'):
+                    if getattr(args, action.dest) != action.default:
+                        explicitly_set.add(action.dest)
+                # For store_true actions, if True means it was set
+                elif action.const == True and getattr(args, action.dest) == True:
+                    explicitly_set.add(action.dest)
+        
         for key, value in preset_dict.items():
             arg_key = key.replace('-', '_')
             # Only apply preset value if user didn't explicitly set it
-            if arg_key == 'profiles' and args.profile == "owasp":  # Default wasn't changed
-                args.profile = value
-            elif not hasattr(args, arg_key) or getattr(args, arg_key) in [None, False, []]:
-                setattr(args, arg_key, value)
+            if arg_key not in explicitly_set:
+                if arg_key == 'profiles' and args.profile == "owasp":  # Default wasn't changed
+                    args.profile = value
+                elif not hasattr(args, arg_key) or getattr(args, arg_key) in [None, False, []]:
+                    setattr(args, arg_key, value)
     
     if not args.repo_path.is_dir():
         console.print(f"[red]Error: '{args.repo_path}' is not a directory[/red]")
@@ -1748,7 +1841,8 @@ def main() -> None:
             deduplicate=args.deduplicate,
             dedupe_threshold=args.dedupe_threshold,
             dedupe_strategy=args.dedupe_strategy,
-            show_quick_wins=args.show_quick_wins
+            show_quick_wins=args.show_quick_wins,
+            track_taint=args.track_taint
         )
         
         console.print("\n[bold yellow]💰 Cost Estimation[/bold yellow]")
