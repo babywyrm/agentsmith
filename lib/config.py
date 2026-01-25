@@ -29,7 +29,7 @@ class ScanPreset:
     threat_model: bool = False
     parallel: bool = False
     show_quick_wins: bool = False  # Display quick win summary
-    track_taint: bool = False  # Enable cross-file taint tracking
+    show_chains: bool = False  # Enable cross-file taint tracking
     
     def to_dict(self) -> dict:
         """Convert preset to dictionary for merging with args."""
@@ -47,7 +47,7 @@ class ScanPreset:
             'threat_model': self.threat_model,
             'parallel': self.parallel,
             'show_quick_wins': self.show_quick_wins,
-            'track_taint': self.track_taint
+            'show_chains': self.show_chains
         }
 
 
@@ -134,7 +134,7 @@ PRESETS: Dict[str, ScanPreset] = {
         export_formats=['json', 'html', 'markdown'],
         threat_model=True,
         show_quick_wins=True,  # Pentest mode shows quick wins
-        track_taint=True  # Pentest mode includes taint tracking
+        show_chains=True  # Pentest mode includes taint tracking
     ),
     
     'compliance': ScanPreset(

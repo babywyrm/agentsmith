@@ -94,7 +94,7 @@ class Orchestrator:
                  generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5,
                  export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None,
                  deduplicate: bool = False, dedupe_threshold: float = 0.7, dedupe_strategy: str = "keep_highest_severity",
-                 show_quick_wins: bool = False, track_taint: bool = False):
+                 show_quick_wins: bool = False, show_chains: bool = False):
         self.repo_path = repo_path.resolve()
         self.scanner_bin = scanner_bin.resolve()
         self.parallel = parallel
@@ -116,13 +116,17 @@ class Orchestrator:
         self.dedupe_threshold = dedupe_threshold
         self.dedupe_strategy = dedupe_strategy
         self.show_quick_wins = show_quick_wins
-        self.track_taint = track_taint
+        self.show_chains = show_chains
         
         # Initialize cost tracker
         self.cost_tracker = CostTracker()
         
         # Rich console for better UX
         self.console = Console()
+        
+        # Debug: Show attack chain tracking status
+        if debug and show_chains:
+            logger.debug(f"Attack chain tracking ENABLED: show_chains={show_chains}")
 
         self.api_key = os.getenv("CLAUDE_API_KEY")
         if not self.api_key:
@@ -595,15 +599,16 @@ class Orchestrator:
         
         return all_ai_findings
 
-    def run_taint_analysis(self, findings: List[Dict[str, Any]]) -> None:
+    def run_attack_chain_analysis(self, findings: List[Dict[str, Any]]) -> None:
         """
-        Run cross-file taint tracking to detect attack chains.
+        Run cross-file attack chain detection.
         
         Traces data flow from user input (sources) through the application
-        to dangerous functions (sinks) across multiple files.
+        to dangerous functions (sinks). Focuses on cross-file chains and
+        high-confidence same-file chains.
         """
-        self.console.print("\n[bold magenta]🔗 Stage: Cross-File Taint Tracking[/bold magenta]")
-        self.console.print("[dim]Analyzing data flow across files to detect attack chains...[/dim]")
+        self.console.print("\n[bold magenta]🔗 Stage: Attack Chain Detection[/bold magenta]")
+        self.console.print("[dim]Analyzing data flow to detect exploitation paths...[/dim]")
         
         # Get files to analyze
         files = self._get_files_to_scan()
@@ -619,22 +624,34 @@ class Orchestrator:
             potential_flows = analyzer.analyze()
         
         if not potential_flows:
-            self.console.print("[yellow]No taint flows detected.[/yellow]")
+            self.console.print("[yellow]No attack chains detected.[/yellow]")
+            return
+        
+        # FILTER: Focus on interesting chains
+        # 1. Cross-file chains (2+ files) OR
+        # 2. High-exploitability same-file chains (score >= 8)
+        interesting_flows = [
+            f for f in potential_flows
+            if f.file_count >= 2 or f.exploitability_score >= 8
+        ]
+        
+        if not interesting_flows:
+            self.console.print("[yellow]No significant attack chains detected (all same-file, low severity).[/yellow]")
             return
         
         self.console.print(f"[green]✓[/green] Found {len(analyzer.sources)} taint sources and {len(analyzer.sinks)} taint sinks")
-        self.console.print(f"[green]✓[/green] Identified {len(potential_flows)} potential attack chains")
+        self.console.print(f"[green]✓[/green] Identified {len(interesting_flows)} significant attack chains (filtered from {len(potential_flows)} total)")
         
         # Display attack chains
-        if potential_flows:
+        if interesting_flows:
             # Show summary first
-            summary = FlowVisualizer.create_summary_diagram(potential_flows)
+            summary = FlowVisualizer.create_summary_diagram(interesting_flows)
             self.console.print(summary)
             
-            # Show detailed flows for high-confidence ones
-            high_confidence = [f for f in potential_flows if f.confidence >= 0.7]
-            if high_confidence:
-                detailed_viz = FlowVisualizer.visualize_multiple_flows(high_confidence, max_flows=5)
+            # Show detailed flows for top chains only
+            top_flows = sorted(interesting_flows, key=lambda f: (f.file_count, f.exploitability_score), reverse=True)[:5]
+            if top_flows:
+                detailed_viz = FlowVisualizer.visualize_multiple_flows(top_flows, max_flows=5)
                 self.console.print(detailed_viz)
             
             # Export to JSON
@@ -1409,9 +1426,13 @@ class Orchestrator:
         if self.threat_model:
             self.run_threat_model()
         
-        # Run taint tracking if requested
-        if self.track_taint:
-            self.run_taint_analysis(combined)
+        # Run attack chain analysis if requested
+        if self.show_chains:
+            if self.debug:
+                self.console.print(f"\n[dim]DEBUG: show_chains={self.show_chains}, running attack chain analysis...[/dim]")
+            self.run_attack_chain_analysis(combined)
+        elif self.debug:
+            self.console.print(f"\n[dim]DEBUG: show_chains={self.show_chains}, skipping attack chain analysis[/dim]")
         
         # Final summary
         self.console.print("\n[bold green]✨ Analysis Complete![/bold green]")
@@ -1660,8 +1681,8 @@ def main() -> None:
                         help="Display quick win summary with most exploitable findings (auto-enabled for CTF presets)")
     parser.add_argument("--detect-tech-stack", action="store_true",
                         help="Display detailed tech stack detection and exit (shows frameworks, entry points, security files)")
-    parser.add_argument("--track-taint", action="store_true",
-                        help="Enable cross-file taint tracking to detect attack chains (shows data flow from sources to sinks)")
+    parser.add_argument("--show-chains", action="store_true",
+                        help="Show attack chains (data flow from user input to dangerous functions) - focuses on cross-file chains")
     args = parser.parse_args()
 
     console = Console()
@@ -1755,26 +1776,43 @@ def main() -> None:
         # Apply preset values (only if not explicitly overridden)
         preset_dict = preset.to_dict()
         
-        # Track which args were explicitly set by user (not defaults)
-        explicitly_set = set()
-        for action in parser._actions:
-            if hasattr(action, 'dest') and action.dest in vars(args):
-                # Check if value differs from default
-                if hasattr(action, 'default'):
-                    if getattr(args, action.dest) != action.default:
-                        explicitly_set.add(action.dest)
-                # For store_true actions, if True means it was set
-                elif action.const == True and getattr(args, action.dest) == True:
-                    explicitly_set.add(action.dest)
+        # Debug: show what's in sys.argv
+        if args.debug:
+            console.print(f"[dim]DEBUG: sys.argv = {sys.argv}[/dim]")
+            console.print(f"[dim]DEBUG: args.show_chains BEFORE preset = {args.show_chains}[/dim]")
+        
+        # Check which flags user explicitly passed (simple check - are they in the command line?)
+        user_set_show_chains = '--track-taint' in sys.argv
+        user_set_show_quick_wins = '--show-quick-wins' in sys.argv
+        user_set_threat_model = '--threat-model' in sys.argv
+        
+        if args.debug:
+            console.print(f"[dim]DEBUG: user_set_show_chains = {user_set_show_chains}[/dim]")
         
         for key, value in preset_dict.items():
             arg_key = key.replace('-', '_')
-            # Only apply preset value if user didn't explicitly set it
-            if arg_key not in explicitly_set:
-                if arg_key == 'profiles' and args.profile == "owasp":  # Default wasn't changed
-                    args.profile = value
-                elif not hasattr(args, arg_key) or getattr(args, arg_key) in [None, False, []]:
-                    setattr(args, arg_key, value)
+            
+            # Skip if user explicitly set this flag
+            if arg_key == 'show_chains' and user_set_show_chains:
+                console.print(f"[dim]💡 User override: --track-taint enabled (preset default overridden)[/dim]")
+                if args.debug:
+                    console.print(f"[dim]DEBUG: Skipping preset value for show_chains (user set it)[/dim]")
+                continue
+            if arg_key == 'show_quick_wins' and user_set_show_quick_wins:
+                continue
+            if arg_key == 'threat_model' and user_set_threat_model:
+                continue
+            
+            # Apply preset value
+            if arg_key == 'profiles' and args.profile == "owasp":  # Default wasn't changed
+                args.profile = value
+            elif not hasattr(args, arg_key) or getattr(args, arg_key) in [None, False, []]:
+                if args.debug and arg_key == 'show_chains':
+                    console.print(f"[dim]DEBUG: Applying preset value show_chains={value}[/dim]")
+                setattr(args, arg_key, value)
+        
+        if args.debug:
+            console.print(f"[dim]DEBUG: args.show_chains AFTER preset = {args.show_chains}[/dim]")
     
     if not args.repo_path.is_dir():
         console.print(f"[red]Error: '{args.repo_path}' is not a directory[/red]")
@@ -1842,7 +1880,7 @@ def main() -> None:
             dedupe_threshold=args.dedupe_threshold,
             dedupe_strategy=args.dedupe_strategy,
             show_quick_wins=args.show_quick_wins,
-            track_taint=args.track_taint
+            show_chains=args.show_chains
         )
         
         console.print("\n[bold yellow]💰 Cost Estimation[/bold yellow]")
@@ -1941,7 +1979,8 @@ def main() -> None:
         deduplicate=args.deduplicate,
         dedupe_threshold=args.dedupe_threshold,
         dedupe_strategy=args.dedupe_strategy,
-        show_quick_wins=args.show_quick_wins
+        show_quick_wins=args.show_quick_wins,
+        show_chains=args.show_chains  # <-- FIXED: Was missing!
     )
     orchestrator.run()
 
