@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-01-24
 
+### Added - Phase 4: Enhanced Tech Stack Detection
+
+- **Deep Tech Stack Detection** (`lib/tech_detector.py`)
+  - Recursive detection of frameworks in subdirectories
+  - Detects: Flask, Django, FastAPI, Express, Spring, Laravel, gRPC, and more
+  - Identifies entry points (routes, controllers, APIs)
+  - Finds security-critical files (auth, config, middleware)
+  - Detects databases and ORMs (SQLAlchemy, Sequelize, Doctrine)
+  - Lists framework-specific security risks
+  - `--detect-tech-stack` flag for detailed detection report
+
+- **Framework-Aware Analysis**
+  - Tech stack context automatically passed to AI prompts
+  - Framework-specific risks highlighted in prompts
+  - Entry points and critical files emphasized
+  - Prioritization questions enhanced with framework context
+  - Example: Flask apps → Focuses on SSTI, SQLAlchemy injection, session security
+
+- **Smart File Focus**
+  - AI prioritization now framework-aware
+  - Automatically highlights routes, controllers, auth files
+  - Framework-specific attack patterns guide analysis
+  - Example output: "8 framework-specific risks, 7 entry points, 1 critical file"
+
 ### Important - Main Entry Point
 - **orchestrator.py** is now the recommended entry point for hybrid mode
 - Supports all new features: presets, smart defaults, quick wins, enhanced prompts

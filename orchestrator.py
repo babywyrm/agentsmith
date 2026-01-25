@@ -40,6 +40,8 @@ from lib.cost_tracker import CostTracker
 from lib.cost_estimator import estimate_scan_cost
 from lib.profile_metadata import list_profiles_by_category, get_all_profiles
 from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector
+from lib.tech_detector import EnhancedTechDetector, generate_framework_aware_prioritization_question
+from lib.universal_detector import UniversalTechDetector
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
@@ -135,29 +137,35 @@ class Orchestrator:
             self.console.print(f"[dim]Filtering for minimum severity: {self.severity}[/dim]")
         self.console.print(f"[dim]Using AI analysis profiles: {self.profiles}[/dim]")
 
-        # Detect application context for smarter analysis
+        # Detect application context for smarter analysis using universal detector
+        self.enhanced_tech_info = UniversalTechDetector.detect_all(self.repo_path)
         self.app_context = self._build_app_context()
-        if self.verbose and self.app_context['frameworks']:
-            self.console.print(f"[dim]Detected: {', '.join(self.app_context['frameworks'])} ({self.app_context['app_type']})[/dim]")
+        
+        if self.verbose and self.enhanced_tech_info['frameworks']:
+            fw_names = [f for f in sorted(self.enhanced_tech_info['frameworks'].keys(), key=lambda x: self.enhanced_tech_info['frameworks'][x], reverse=True)]
+            self.console.print(f"[dim]🔍 Detected: {', '.join(fw_names)} ({self.enhanced_tech_info['app_type']})[/dim]")
+            if self.enhanced_tech_info['framework_specific_risks']:
+                self.console.print(f"[dim]   Framework risks: {len(self.enhanced_tech_info['framework_specific_risks'])} identified[/dim]")
+            if self.enhanced_tech_info['security_critical_files']:
+                self.console.print(f"[dim]   Critical files: {len(self.enhanced_tech_info['security_critical_files'])} security-sensitive files found[/dim]")
 
         self.prompt_templates = self._load_prompt_templates()
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
     def _build_app_context(self) -> Dict[str, any]:
         """Build application context for smarter analysis."""
-        tech_info = TechStackDetector.detect(self.repo_path)
+        # Use universal detector (already stored in self.enhanced_tech_info)
+        enhanced_info = self.enhanced_tech_info
         
-        context_str = f"""
-Application Type: {tech_info['app_type']}
-Frameworks Detected: {', '.join(tech_info['frameworks'])}
-Languages: {', '.join(tech_info['languages'])}
-Containerized: {'Yes' if tech_info['has_docker'] else 'No'}
-Has Tests: {'Yes' if tech_info['has_tests'] else 'No'}
-""".strip()
+        # Build context string with framework-specific enhancements
+        context_str = enhanced_info.get('context_str', '')
+        prompt_enhancements = enhanced_info.get('prompt_enhancements', '')
+        
+        full_context = f"{context_str}\n{prompt_enhancements}".strip()
         
         return {
-            **tech_info,
-            'context_str': context_str
+            **enhanced_info,
+            'context_str': full_context
         }
 
     def _load_prompt_templates(self) -> Dict[str, str]:
@@ -303,7 +311,7 @@ Has Tests: {'Yes' if tech_info['has_tests'] else 'No'}
                     )
                 except KeyError as e2:
                     logger.error(f"Prompt template for {profile} missing placeholder: {e2}")
-                    return None
+                return None
             for attempt in range(MAX_RETRIES):
                 try:
                     resp = client.messages.create(
@@ -396,8 +404,17 @@ Has Tests: {'Yes' if tech_info['has_tests'] else 'No'}
         self.console.print("\n[bold cyan]🎯 Stage 1: Prioritization[/bold cyan]")
         self.console.print(f"[dim]Analyzing {len(all_files)} files to identify top {self.prioritize_top} most relevant...[/dim]")
         
+        # Enhance question with framework-specific context
+        enhanced_question = generate_framework_aware_prioritization_question(
+            self.question,
+            self.enhanced_tech_info
+        )
+        
+        if self.verbose and enhanced_question != self.question:
+            self.console.print(f"[dim]💡 Enhanced question with framework context[/dim]")
+        
         try:
-            prompt = PromptFactory.prioritization(all_files, self.question, self.prioritize_top)
+            prompt = PromptFactory.prioritization(all_files, enhanced_question, self.prioritize_top)
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=2000,
@@ -1515,6 +1532,8 @@ def main() -> None:
                         help="Disable smart defaults (use only explicitly specified options)")
     parser.add_argument("--show-quick-wins", action="store_true",
                         help="Display quick win summary with most exploitable findings (auto-enabled for CTF presets)")
+    parser.add_argument("--detect-tech-stack", action="store_true",
+                        help="Display detailed tech stack detection and exit (shows frameworks, entry points, security files)")
     args = parser.parse_args()
 
     console = Console()
@@ -1527,6 +1546,61 @@ def main() -> None:
     # Handle profile listing early (no repo required)
     if args.list_profiles:
         _print_profile_list(console)
+        sys.exit(0)
+    
+    # Handle tech stack detection (requires repo only)
+    if args.detect_tech_stack:
+        if not args.repo_path:
+            console.print("[red]Error: repo_path is required for tech stack detection[/red]")
+            sys.exit(1)
+        if not args.repo_path.is_dir():
+            console.print(f"[red]Error: '{args.repo_path}' is not a directory[/red]")
+            sys.exit(1)
+        
+        console.print("\n[bold cyan]🔍 Tech Stack Detection[/bold cyan]")
+        console.print("=" * 70)
+        
+        tech_info = UniversalTechDetector.detect_all(args.repo_path)
+        
+        console.print(f"\n[bold]Application Information:[/bold]")
+        console.print(f"  Type: {tech_info['app_type']}")
+        console.print(f"  Languages: {', '.join(tech_info['languages'])}")
+        
+        # Show frameworks with confidence scores
+        if tech_info['frameworks']:
+            fw_list = sorted(tech_info['frameworks'].items(), key=lambda x: x[1], reverse=True)
+            fw_display = ', '.join([f"{name} ({score:.0%})" for name, score in fw_list])
+            console.print(f"  Frameworks: {fw_display}")
+        else:
+            console.print(f"  Frameworks: None detected")
+        
+        if tech_info['databases']:
+            console.print(f"  Databases/ORMs: {', '.join(tech_info['databases'])}")
+        
+        console.print(f"  Containerized: {'Yes' if tech_info['has_docker'] else 'No'}")
+        console.print(f"  Has Tests: {'Yes' if tech_info['has_tests'] else 'No'}")
+        
+        if tech_info['entry_points']:
+            console.print(f"\n[bold]Entry Points ({len(tech_info['entry_points'])}):[/bold]")
+            for ep in tech_info['entry_points'][:10]:
+                console.print(f"  • {ep}")
+            if len(tech_info['entry_points']) > 10:
+                console.print(f"  ... and {len(tech_info['entry_points']) - 10} more")
+        
+        if tech_info['security_critical_files']:
+            console.print(f"\n[bold]Security-Critical Files ({len(tech_info['security_critical_files'])}):[/bold]")
+            for sf in tech_info['security_critical_files'][:10]:
+                console.print(f"  • {sf}")
+            if len(tech_info['security_critical_files']) > 10:
+                console.print(f"  ... and {len(tech_info['security_critical_files']) - 10} more")
+        
+        if tech_info['framework_specific_risks']:
+            console.print(f"\n[bold yellow]⚠️  Framework-Specific Security Risks:[/bold yellow]")
+            for risk in tech_info['framework_specific_risks']:
+                console.print(f"  • {risk}")
+        
+        console.print(f"\n[dim]Use this information to guide your security analysis.[/dim]")
+        console.print(f"[dim]Run with --question to focus on specific risks.[/dim]\n")
         sys.exit(0)
     
     # Now validate required arguments
