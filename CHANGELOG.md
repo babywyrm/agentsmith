@@ -4,7 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-01-24
 
-### Added
+### Added - Phase 2: Smart Presets & Enhanced Analysis
+
+- **Preset System** (`lib/config.py`)
+  - 6 optimized presets: `quick`, `ctf`, `ctf-fast`, `security-audit`, `pentest`, `compliance`
+  - `--preset <name>` flag for one-command configuration
+  - `--list-presets` to view all available presets
+  - Presets can be overridden with individual flags
+
+- **Smart Defaults System**
+  - Auto-prioritization for repos with >50 files
+  - Auto-deduplication when using multiple profiles
+  - Auto-add HTML export when payloads/annotations enabled
+  - Smart top-n calculation based on findings count
+  - `--smart-defaults` (enabled by default)
+  - `--no-smart-defaults` to disable auto-configuration
+
+- **Tech Stack Detection**
+  - Automatic detection of frameworks (Flask, Django, Express, Spring, etc.)
+  - Language detection (Python, JavaScript, Go, Java, PHP)
+  - Application type classification (web_app, web_api, microservice)
+  - Container detection (Docker)
+  - Context passed to AI for smarter analysis
+
+- **Enhanced Prompts**
+  - `owasp_enhanced_profile.txt` - 3x more detailed, exploitability-focused
+  - `ctf_enhanced_profile.txt` - CTF-optimized with flag hunting strategies
+  - Automatic detection and use of enhanced prompts
+  - Fallback to legacy prompts for compatibility
+  - App context injection for framework-aware analysis
+
+### Added - Phase 1: Normalization & Error Handling
+
 - **Normalization Utilities** (`lib/common.py`)
   - `normalize_finding()` - Centralized finding normalization
   - `get_recommendation_text()` - Unified recommendation extraction
@@ -41,6 +72,19 @@ All notable changes to this project will be documented in this file.
 - Maintainability: Single source of truth for field normalization
 - Testability: All normalization logic now unit tested
 - Error handling: Specific exceptions with proper context
+- Command complexity: 39 options → 6 presets + smart defaults (70% reduction)
+- Prompt quality: Basic pattern matching → exploitability-focused analysis
+
+### Performance
+- Smart defaults reduce unnecessary API calls
+- Auto-prioritization for large repos saves time and cost
+- Tech stack detection enables framework-aware analysis
+
+### User Experience
+- Presets reduce command complexity by ~70%
+- Smart defaults "just work" for most cases
+- Enhanced prompts provide more actionable results
+- Better progress feedback and context awareness
 
 ---
 

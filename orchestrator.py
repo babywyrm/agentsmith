@@ -39,6 +39,7 @@ from lib.deduplication import deduplicate_findings
 from lib.cost_tracker import CostTracker
 from lib.cost_estimator import estimate_scan_cost
 from lib.profile_metadata import list_profiles_by_category, get_all_profiles
+from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
@@ -132,8 +133,30 @@ class Orchestrator:
             self.console.print(f"[dim]Filtering for minimum severity: {self.severity}[/dim]")
         self.console.print(f"[dim]Using AI analysis profiles: {self.profiles}[/dim]")
 
+        # Detect application context for smarter analysis
+        self.app_context = self._build_app_context()
+        if self.verbose and self.app_context['frameworks']:
+            self.console.print(f"[dim]Detected: {', '.join(self.app_context['frameworks'])} ({self.app_context['app_type']})[/dim]")
+
         self.prompt_templates = self._load_prompt_templates()
         self.client = anthropic.Anthropic(api_key=self.api_key)
+
+    def _build_app_context(self) -> Dict[str, any]:
+        """Build application context for smarter analysis."""
+        tech_info = TechStackDetector.detect(self.repo_path)
+        
+        context_str = f"""
+Application Type: {tech_info['app_type']}
+Frameworks Detected: {', '.join(tech_info['frameworks'])}
+Languages: {', '.join(tech_info['languages'])}
+Containerized: {'Yes' if tech_info['has_docker'] else 'No'}
+Has Tests: {'Yes' if tech_info['has_tests'] else 'No'}
+""".strip()
+        
+        return {
+            **tech_info,
+            'context_str': context_str
+        }
 
     def _load_prompt_templates(self) -> Dict[str, str]:
         """Load profile-specific AI prompts from prompts/ directory."""
@@ -141,17 +164,31 @@ class Orchestrator:
         profiles_to_load = self.profiles[:]
         if self.threat_model and 'attacker' not in profiles_to_load:
             profiles_to_load.append('attacker')
+        
         for profile in profiles_to_load:
-            # Try prompts/ directory first (for backward compatibility)
+            # Try enhanced version first (if it exists)
+            enhanced_file = Path("prompts") / f"{profile}_enhanced_profile.txt"
             prompt_file = Path("prompts") / f"{profile}_profile.txt"
-            if not prompt_file.is_file():
+            
+            # Check from current directory first
+            if enhanced_file.is_file():
+                prompt_file = enhanced_file
+                if self.verbose:
+                    self.console.print(f"[dim]   Using enhanced prompt for {profile}[/dim]")
+            elif not prompt_file.is_file():
                 # Fallback: check if we're in a different directory structure
                 script_dir = Path(__file__).parent
+                enhanced_file = script_dir / "prompts" / f"{profile}_enhanced_profile.txt"
                 prompt_file = script_dir / "prompts" / f"{profile}_profile.txt"
+                if enhanced_file.is_file():
+                    prompt_file = enhanced_file
+            
             if not prompt_file.is_file():
                 self.console.print(f"[red]Prompt file not found: {prompt_file}[/red]")
                 sys.exit(1)
+            
             templates[profile] = prompt_file.read_text(encoding="utf-8")
+        
         self.console.print(f"[dim]   (Loaded {len(templates)} prompt templates)[/dim]")
         return templates
 
@@ -247,10 +284,24 @@ class Orchestrator:
             if not chunk.strip():
                 continue
             try:
-                prompt = self.prompt_templates[profile].format(file_path=file_path, language=language, code=chunk)
+                # Try to format with app_context (for enhanced prompts)
+                prompt = self.prompt_templates[profile].format(
+                    file_path=file_path,
+                    language=language,
+                    code=chunk,
+                    app_context=self.app_context.get('context_str', 'Unknown')
+                )
             except KeyError as e:
-                logger.error(f"Prompt template for {profile} missing placeholder: {e}")
-                return None
+                # Fallback for legacy prompts without app_context
+                try:
+                    prompt = self.prompt_templates[profile].format(
+                        file_path=file_path,
+                        language=language,
+                        code=chunk
+                    )
+                except KeyError as e2:
+                    logger.error(f"Prompt template for {profile} missing placeholder: {e2}")
+                    return None
             for attempt in range(MAX_RETRIES):
                 try:
                     resp = client.messages.create(
@@ -1231,6 +1282,28 @@ class Orchestrator:
             self.console.print(f"[dim]Note: Actual costs may be slightly higher (failed calls, retries, or accumulated costs)[/dim]")
 
 
+def _print_preset_list(console: Console) -> None:
+    """Print a formatted list of all available presets."""
+    console.print("\n[bold]Available Scan Presets[/bold]")
+    console.print("=" * 70)
+    console.print("\nPresets provide optimized configurations for common scanning scenarios.")
+    console.print("Use: --preset <name> to apply a preset configuration.\n")
+    
+    for preset in list_presets():
+        console.print(f"\n[bold cyan]{preset.name}[/bold cyan]")
+        console.print(f"  {preset.description}")
+        console.print(f"  Profiles: {', '.join(preset.profiles)}")
+        console.print(f"  Prioritize: {preset.prioritize} (top {preset.prioritize_top if preset.prioritize else 'N/A'})")
+        console.print(f"  Payloads: {preset.generate_payloads}, Annotations: {preset.annotate_code}")
+        console.print(f"  Deduplicate: {preset.deduplicate}")
+        console.print(f"  Export: {', '.join(preset.export_formats)}")
+        
+        console.print(f"\n  [dim]Example:[/dim]")
+        console.print(f"  [dim]python3 orchestrator.py /path/to/repo ./scanner --preset {preset.name}[/dim]")
+    
+    console.print("\n[bold]Note:[/bold] Preset flags can be overridden by specifying individual options.\n")
+
+
 def _print_profile_list(console: Console) -> None:
     """Print a formatted list of all available profiles."""
     console.print("\n[bold]Available AI Profiles[/bold]")
@@ -1280,8 +1353,11 @@ def main() -> None:
         description="Orchestrator for scrynet and Claude scanners.",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("repo_path", type=Path, help="Path to repo to scan.")
-    parser.add_argument("scanner_bin", type=Path, help="Path to scrynet scanner binary.")
+    parser.add_argument("repo_path", type=Path, nargs='?', help="Path to repo to scan.")
+    parser.add_argument("scanner_bin", type=Path, nargs='?', help="Path to scrynet scanner binary.")
+    parser.add_argument("--preset", type=str.lower,
+                        choices=['quick', 'ctf', 'ctf-fast', 'security-audit', 'pentest', 'compliance'],
+                        help="Use a preset configuration (overrides individual flags). Available: quick, ctf, ctf-fast, security-audit, pentest, compliance. Use --list-presets to see details.")
     parser.add_argument("--profile", type=str.lower, default="owasp",
                         help="Comma-separated list of AI profiles. Available: owasp, ctf, code_review, modern, soc2, pci, compliance, performance, attacker (e.g., 'owasp,ctf' or 'soc2,compliance').")
     parser.add_argument("--static-rules", type=str,
@@ -1328,14 +1404,57 @@ def main() -> None:
                         help="Estimate API costs before running (does not execute scan)")
     parser.add_argument("--list-profiles", action="store_true",
                         help="List all available AI profiles with descriptions and use cases")
+    parser.add_argument("--list-presets", action="store_true",
+                        help="List all available preset configurations")
+    parser.add_argument("--smart-defaults", action="store_true", default=True,
+                        help="Enable smart defaults (auto-prioritize large repos, auto-deduplicate multiple profiles) (default: enabled)")
+    parser.add_argument("--no-smart-defaults", action="store_true",
+                        help="Disable smart defaults (use only explicitly specified options)")
     args = parser.parse_args()
 
     console = Console()
     
-    # Handle profile listing early
+    # Handle preset listing early (no repo required)
+    if args.list_presets:
+        _print_preset_list(console)
+        sys.exit(0)
+    
+    # Handle profile listing early (no repo required)
     if args.list_profiles:
         _print_profile_list(console)
         sys.exit(0)
+    
+    # Now validate required arguments
+    if not args.repo_path:
+        console.print("[red]Error: repo_path is required[/red]")
+        parser.print_help()
+        sys.exit(1)
+    if not args.scanner_bin:
+        console.print("[red]Error: scanner_bin is required[/red]")
+        parser.print_help()
+        sys.exit(1)
+    
+    # Apply preset configuration if specified
+    if args.preset:
+        preset = get_preset(args.preset)
+        if not preset:
+            console.print(f"[red]Error: Unknown preset '{args.preset}'[/red]")
+            console.print("[dim]Use --list-presets to see available presets[/dim]")
+            sys.exit(1)
+        
+        console.print(f"[bold cyan]📦 Using preset: {preset.name}[/bold cyan]")
+        console.print(f"[dim]{preset.description}[/dim]")
+        
+        # Apply preset values (only if not explicitly overridden)
+        preset_dict = preset.to_dict()
+        for key, value in preset_dict.items():
+            arg_key = key.replace('-', '_')
+            # Only apply preset value if user didn't explicitly set it
+            if arg_key == 'profiles' and args.profile == "owasp":  # Default wasn't changed
+                args.profile = value
+            elif not hasattr(args, arg_key) or getattr(args, arg_key) in [None, False, []]:
+                setattr(args, arg_key, value)
+    
     if not args.repo_path.is_dir():
         console.print(f"[red]Error: '{args.repo_path}' is not a directory[/red]")
         sys.exit(1)
@@ -1345,6 +1464,37 @@ def main() -> None:
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
+    
+    # Apply smart defaults (unless disabled)
+    if not args.no_smart_defaults and args.smart_defaults:
+        # Quick file count for smart defaults
+        from pathlib import Path as P
+        skip_dirs = {'.git', 'node_modules', '__pycache__', 'vendor', 'build', 'dist'}
+        quick_files = [
+            p for p in args.repo_path.rglob('*')
+            if (p.is_file() and
+                p.suffix.lower() in SUPPORTED_EXTENSIONS and
+                not any(skip_dir in p.parts for skip_dir in skip_dirs))
+        ]
+        num_files = len(quick_files)
+        profiles_list = [p.strip() for p in args.profile.split(',')]
+        
+        # Auto-prioritize for large repos
+        if not args.prioritize and SmartDefaults.should_auto_prioritize(num_files):
+            args.prioritize = True
+            args.prioritize_top = SmartDefaults.calculate_smart_prioritize_top(num_files)
+            console.print(f"[dim]💡 Smart default: Auto-enabled prioritization (top {args.prioritize_top} of {num_files} files)[/dim]")
+        
+        # Auto-deduplicate with multiple profiles
+        if not args.deduplicate and SmartDefaults.should_auto_deduplicate(profiles_list):
+            args.deduplicate = True
+            console.print(f"[dim]💡 Smart default: Auto-enabled deduplication (multiple profiles detected)[/dim]")
+        
+        # Auto-add HTML export if payloads/annotations enabled
+        if SmartDefaults.should_add_html_export(args.generate_payloads, args.annotate_code):
+            if 'html' not in args.export_format:
+                args.export_format.append('html')
+                console.print(f"[dim]💡 Smart default: Added HTML export (visual features enabled)[/dim]")
 
     # Handle cost estimation
     if args.estimate_cost:
