@@ -1,34 +1,50 @@
 # SCRYNET Documentation
 
-This directory contains additional documentation for SCRYNET.
+Additional documentation for SCRYNET features.
 
-## Documentation Files
+## 📚 Documentation Files
 
-- **[PROFILES.md](PROFILES.md)** - Complete guide to all available profiles
-  - Profile descriptions and use cases
-  - Examples for each profile
-  - Combining multiple profiles
+### Essential Guides
 
-- **[TEST_PROFILES.md](TEST_PROFILES.md)** - Comprehensive test examples
-- **[ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md)** - Advanced multi-profile and deduplication examples
-  - Full-featured test commands for all profiles
-  - Verification checklists
-  - Troubleshooting guide
+- **[PROFILES.md](PROFILES.md)** - Complete profile reference
+  - All available AI profiles (owasp, ctf, code_review, etc.)
+  - Use cases and examples
+  - How to combine profiles
 
-- **[VENV_GUIDE.md](VENV_GUIDE.md)** - Virtual environment guide
-  - Setup instructions
-  - Daily usage tips
-  - Troubleshooting common issues
+- **[ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md)** - Advanced usage examples
+  - Multi-profile scans
+  - Deduplication strategies
+  - Complex workflows
 
-- **[PROFILE_SYSTEM_ANALYSIS.md](PROFILE_SYSTEM_ANALYSIS.md)** - Profile system architecture
-  - Current implementation
-  - Improvement plans
-  - Technical details
+### Feature Documentation
 
-## Quick Links
+- **[REVIEW_STATE.md](REVIEW_STATE.md)** - Review state management
+  - How to save and resume scans
+  - Change detection
+  - Progress tracking
 
-- Main README: [../README.md](../README.md)
-- Quick Start: See main README
-- Profile Guide: [PROFILES.md](PROFILES.md)
-- Test Examples: [TEST_PROFILES.md](TEST_PROFILES.md)
+- **[SCRYNET_CONTEXT_README.md](SCRYNET_CONTEXT_README.md)** - Context & caching system
+  - API response caching
+  - Context file generation
+  - Cache management
 
+- **[DEDUPLICATION_FLOW.md](DEDUPLICATION_FLOW.md)** - Deduplication system
+  - How deduplication works
+  - Similarity detection
+  - Merge strategies
+
+## 🚀 Quick Links
+
+- **Main README**: [../README.md](../README.md)
+- **Changelog**: [../CHANGELOG.md](../CHANGELOG.md)
+- **Test Suite**: [../tests/README.md](../tests/README.md)
+
+## 💡 Getting Started
+
+For most users, the main README has everything you need:
+```bash
+cd gowasp
+python3 scrynet.py --help
+```
+
+For advanced features, see the guides listed above.

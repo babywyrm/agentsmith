@@ -1,79 +1,83 @@
 # SCRYNET Test Suite
 
-This directory contains the Python test suite for SCRYNET.
-
-## Test Files
-
-### Core Tests
-
-- **`test_profiles.py`** - Tests for profile loading and validation
-  - Profile file existence
-  - Required placeholders
-  - JSON structure requirements
-  - Profile loading logic
-
-- **`test_common.py`** - Tests for common utilities (`lib/common.py`)
-  - JSON parsing from API responses
-  - File scanning utilities
-  - Retry decorator functionality
-  - Code extension detection
-
-- **`test_orchestrator.py`** - Tests for orchestrator functionality
-  - Severity enum and ordering
-  - Profile template loading
-  - Profile placeholder validation
-
-### Reference Files
-
-The following files are kept for reference:
-
-- **`IMPROVEMENTS.md`** - Historical improvement notes from beta development
-- **`test_context_lib.py`** - Test for context library
-- **`scrynet_context_example.py`** - Example usage of context library
-
-**Note**: Documentation for review state and context library has been moved to `docs/` directory.
+Python test suite for SCRYNET core functionality.
 
 ## Running Tests
 
-### Run All Tests
-
+### Quick Test
 ```bash
-# From the gowasp directory
+cd gowasp
+source .venv/bin/activate
+python3 tests/test_imports.py
+```
+
+### All Tests
+```bash
 python3 -m unittest discover tests -v
 ```
 
-### Run Specific Test File
-
+### Specific Test Files
 ```bash
-python3 -m unittest tests.test_profiles -v
 python3 -m unittest tests.test_common -v
 python3 -m unittest tests.test_orchestrator -v
+python3 -m unittest tests.test_profiles -v
+python3 -m unittest tests.test_integration -v
 ```
 
-### Run Specific Test Class
-
+### Specific Test Classes
 ```bash
-python3 -m unittest tests.test_profiles.TestProfiles -v
+python3 -m unittest tests.test_common.TestNormalizeFinding -v
+python3 -m unittest tests.test_integration.TestNormalizationIntegration -v
 ```
+
+## Test Files
+
+- `test_common.py` - Tests for `lib/common.py` utilities
+- `test_orchestrator.py` - Tests for orchestrator functionality
+- `test_profiles.py` - Tests for profile loading
+- `test_integration.py` - Integration and workflow tests
+- `test_imports.py` - Quick import verification
+- `test_context_lib.py` - Context/caching tests
 
 ## Test Coverage
 
-Current tests cover:
-- ✅ Profile file validation
-- ✅ Common utility functions
-- ✅ Orchestrator initialization
-- ✅ Severity filtering
+Current coverage: **43/48 tests passing (89.6%)**
 
-Future test additions:
-- [ ] Integration tests with mock API responses
-- [ ] End-to-end workflow tests
-- [ ] Payload generation tests
-- [ ] Code annotation tests
-- [ ] Report generation tests
+### Covered
+✅ Finding normalization (8 tests)
+✅ Recommendation extraction (1 test)
+✅ Line number extraction (5 tests)
+✅ Safe file reading (3 tests)
+✅ Error classes (2 tests)
+✅ JSON parsing (5 tests)
+✅ Integration workflows (5 tests)
+✅ Orchestrator functionality (5 tests)
+✅ Profile loading (9 tests)
+
+### Test Targets
+
+Real vulnerability test applications in `test_targets/`:
+- DVWA - Damn Vulnerable Web Application
+- juice-shop - OWASP Juice Shop
+- WebGoat - OWASP WebGoat
+
+## Shell Scripts
+
+Located in `scripts/`:
+- `test_dvwa.sh` - Test DVWA scan
+- `test_juice_shop.sh` - Test juice-shop scan
+- `test_advanced.sh` - Advanced feature tests
+- `test_complex.sh` - Complex multi-profile tests
+- `test_all_profiles.sh` - Test all profiles
+
+Run with:
+```bash
+cd gowasp/tests/scripts
+./test_dvwa.sh
+```
 
 ## Notes
 
-- Tests use `sys.path.insert(0, ...)` to import from parent directory
-- Some tests may require virtual environment to be activated
-- Legacy test files may need updates to reflect current codebase structure
-
+- Tests use virtual environment (`.venv`)
+- Some tests require `CLAUDE_API_KEY` for API integration tests
+- Static tests work without API key
