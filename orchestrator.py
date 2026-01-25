@@ -1652,8 +1652,8 @@ def main() -> None:
                         help="Generate Red/Blue team payloads for top findings")
     parser.add_argument("--annotate-code", action="store_true",
                         help="Generate annotated code snippets showing flaws and fixes")
-    parser.add_argument("--top-n", type=int, default=5,
-                        help="Number of top findings for payload/annotation generation (default: 5)")
+    parser.add_argument("--top-n", "--top", type=int, default=5, dest="top_n",
+                        help="Number of top findings for payload/annotation generation (default: 5, can use --top or --top-n)")
     parser.add_argument("--export-format", nargs="*", 
                         choices=['json', 'csv', 'markdown', 'html'],
                         default=['json', 'csv', 'markdown'],
@@ -1782,7 +1782,7 @@ def main() -> None:
             console.print(f"[dim]DEBUG: args.show_chains BEFORE preset = {args.show_chains}[/dim]")
         
         # Check which flags user explicitly passed (simple check - are they in the command line?)
-        user_set_show_chains = '--track-taint' in sys.argv
+        user_set_show_chains = '--show-chains' in sys.argv
         user_set_show_quick_wins = '--show-quick-wins' in sys.argv
         user_set_threat_model = '--threat-model' in sys.argv
         
@@ -1794,7 +1794,7 @@ def main() -> None:
             
             # Skip if user explicitly set this flag
             if arg_key == 'show_chains' and user_set_show_chains:
-                console.print(f"[dim]💡 User override: --track-taint enabled (preset default overridden)[/dim]")
+                console.print(f"[dim]💡 User override: --show-chains enabled (preset default overridden)[/dim]")
                 if args.debug:
                     console.print(f"[dim]DEBUG: Skipping preset value for show_chains (user set it)[/dim]")
                 continue
