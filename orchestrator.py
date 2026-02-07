@@ -44,9 +44,10 @@ from lib.tech_detector import EnhancedTechDetector, generate_framework_aware_pri
 from lib.universal_detector import UniversalTechDetector
 from lib.taint_tracker import TaintTracker, TaintAnalyzer
 from lib.flow_visualizer import FlowVisualizer
+from lib.model_registry import get_default_model, resolve_model, model_cli_help, get_model_max_tokens
 
 # --- Constants / Configuration ---
-CLAUDE_MODEL = "claude-3-5-haiku-20241022"  # Using Haiku for cost efficiency; can be overridden via --model flag
+CLAUDE_MODEL = get_default_model()  # Respects CLAUDE_MODEL env var; can be overridden via --model flag
 MAX_WORKERS = 4
 MAX_RETRIES = 3
 CHUNK_SIZE = 2000  # lines per file chunk
@@ -104,7 +105,7 @@ class Orchestrator:
         self.static_rules = static_rules
         self.threat_model = threat_model
         self.verbose = verbose
-        self.model = model or CLAUDE_MODEL
+        self.model = resolve_model(model) if model else CLAUDE_MODEL
         self.prioritize = prioritize
         self.prioritize_top = prioritize_top
         self.question = question or "find security vulnerabilities"
@@ -224,11 +225,83 @@ class Orchestrator:
         """Extract JSON object from model output using regex fallback."""
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
+            candidate = match.group(0)
             try:
-                return json.loads(match.group(0))
+                return json.loads(candidate)
             except json.JSONDecodeError as e:
+                # Handle "Extra data" -- try using json.JSONDecoder to get first valid object
+                if "Extra data" in str(e):
+                    try:
+                        decoder = json.JSONDecoder()
+                        result, _ = decoder.raw_decode(candidate)
+                        if isinstance(result, dict):
+                            logger.info("Extracted JSON using raw_decode (ignored trailing data)")
+                            return result
+                    except json.JSONDecodeError:
+                        pass
                 logger.error(f"Failed to parse JSON: {e}")
         return None
+
+    @staticmethod
+    def _repair_truncated_json(text: str) -> str:
+        """
+        Attempt to repair JSON that was truncated by max_tokens.
+
+        Strategy: find the last cleanly-closed JSON element, then
+        close any remaining open braces/brackets.
+        """
+        # Find the outermost JSON object start
+        start = text.find('{')
+        if start == -1:
+            return text
+
+        json_text = text[start:]
+
+        # Strategy 1: Try truncating at the last complete object boundary
+        # Look for the last '},' or '}]' which marks a complete element
+        for end_marker in ['},\n', '},', '}\n    ]', '}]', '"\n    }', '"}']:
+            last_pos = json_text.rfind(end_marker)
+            if last_pos > 0:
+                candidate = json_text[:last_pos + len(end_marker)]
+                # Count open/close braces and brackets
+                open_braces = candidate.count('{') - candidate.count('}')
+                open_brackets = candidate.count('[') - candidate.count(']')
+                if open_braces < 0 or open_brackets < 0:
+                    continue
+                # Close them
+                candidate += ']' * open_brackets + '}' * open_braces
+                try:
+                    json.loads(candidate)
+                    logger.info("JSON repair successful (truncated at clean boundary)")
+                    return candidate
+                except json.JSONDecodeError:
+                    continue
+
+        # Strategy 2: Trim trailing partial content and close structures
+        # Remove any trailing partial string value (unmatched quote)
+        if json_text.count('"') % 2 != 0:
+            last_quote = json_text.rfind('"')
+            json_text = json_text[:last_quote + 1]
+
+        # Remove any trailing partial key-value pair after last comma
+        last_comma = json_text.rfind(',')
+        last_close = max(json_text.rfind('}'), json_text.rfind(']'))
+        if last_comma > last_close:
+            # There's a trailing comma with incomplete data after it
+            json_text = json_text[:last_comma]
+
+        open_braces = json_text.count('{') - json_text.count('}')
+        open_brackets = json_text.count('[') - json_text.count(']')
+        json_text += ']' * max(0, open_brackets) + '}' * max(0, open_braces)
+
+        try:
+            json.loads(json_text)
+            logger.info("JSON repair successful (closed open structures)")
+            return json_text
+        except json.JSONDecodeError:
+            pass
+
+        return json_text
 
     def run_static_scanner(self) -> List[Finding]:
         """Invoke scrynet scanner binary and parse JSON results."""
@@ -319,11 +392,12 @@ class Orchestrator:
                 except KeyError as e2:
                     logger.error(f"Prompt template for {profile} missing placeholder: {e2}")
                 return None
+            max_tokens = get_model_max_tokens(self.model, stage="analysis")
             for attempt in range(MAX_RETRIES):
                 try:
                     resp = client.messages.create(
                         model=self.model,
-                        max_tokens=3000,
+                        max_tokens=max_tokens,
                         messages=[{"role": "user", "content": prompt}]
                     )
                     # Track cost for this API call (including retries - each attempt costs)
@@ -334,9 +408,18 @@ class Orchestrator:
                         profile=profile,
                         file=str(file_path)
                     )
-                    parsed = self._extract_json(resp.content[0].text.strip())
+                    raw_text = resp.content[0].text.strip()
+                    # Detect truncated responses (hit max_tokens before finishing)
+                    if resp.stop_reason == "max_tokens":
+                        logger.warning(f"Response truncated for {file_path} (hit {max_tokens} token limit). Attempting JSON repair.")
+                        # Try to salvage partial JSON by closing open structures
+                        raw_text = self._repair_truncated_json(raw_text)
+                    parsed = self._extract_json(raw_text)
                     if parsed:
                         return parsed
+                    elif resp.stop_reason == "max_tokens":
+                        logger.error(f"Could not parse truncated response for {file_path}. Skipping file.")
+                        return None
                 except anthropic.APIStatusError as e:
                     # Track failed attempts too (if they consume tokens before failing)
                     # API errors may charge for input tokens before failing
@@ -424,7 +507,7 @@ class Orchestrator:
             prompt = PromptFactory.prioritization(all_files, enhanced_question, self.prioritize_top)
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=2000,
+                max_tokens=get_model_max_tokens(self.model, stage="prioritization"),
                 messages=[{"role": "user", "content": prompt}]
             )
             # Track cost for prioritization
@@ -703,7 +786,7 @@ class Orchestrator:
             try:
                 resp = self.client.messages.create(
                     model=self.model,
-                    max_tokens=4000,
+                    max_tokens=get_model_max_tokens(self.model, stage="threat_modeling"),
                     messages=[{"role": "user", "content": prompt}]
                 )
                 # Track cost for threat modeling
@@ -712,7 +795,11 @@ class Orchestrator:
                     stage="threat_modeling",
                     model=self.model
                 )
-                parsed = self._extract_json(resp.content[0].text.strip())
+                raw_text = resp.content[0].text.strip()
+                if resp.stop_reason == "max_tokens":
+                    logger.warning("Threat model response truncated. Attempting JSON repair.")
+                    raw_text = self._repair_truncated_json(raw_text)
+                parsed = self._extract_json(raw_text)
                 if parsed:
                     report_file = self.output_path / "threat_model_report.json"
                     with open(report_file, "w", encoding="utf-8") as f:
@@ -896,7 +983,7 @@ class Orchestrator:
                 try:
                     response = self.client.messages.create(
                         model=self.model,
-                        max_tokens=2000,
+                        max_tokens=get_model_max_tokens(self.model, stage="payload"),
                         messages=[{"role": "user", "content": prompt}]
                     )
                     # Track cost for payload generation
@@ -1040,7 +1127,7 @@ class Orchestrator:
                 try:
                     response = self.client.messages.create(
                         model=self.model,
-                        max_tokens=2000,
+                        max_tokens=get_model_max_tokens(self.model, stage="annotation"),
                         messages=[{"role": "user", "content": prompt}]
                     )
                     # Track cost for annotation
@@ -1641,7 +1728,7 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug mode for troubleshooting.")
     parser.add_argument("--model", type=str, default=CLAUDE_MODEL,
-                        help=f"Claude model to use (default: {CLAUDE_MODEL})")
+                        help=model_cli_help())
     parser.add_argument("--prioritize", action="store_true",
                         help="Enable AI prioritization to select top files for analysis (saves time and cost)")
     parser.add_argument("--prioritize-top", type=int, default=15,

@@ -62,9 +62,11 @@ try:
 except ImportError:
     CONTEXT_AVAILABLE = False
 
+from lib.model_registry import get_default_model, resolve_model, model_cli_help
+
 
 # ---------- Constants ----------
-CLAUDE_MODEL: Final = "claude-3-5-haiku-20241022"
+CLAUDE_MODEL: Final = get_default_model()
 DEFAULT_MAX_FILE_BYTES: Final = 500_000
 DEFAULT_MAX_FILES: Final = 400
 
@@ -679,7 +681,7 @@ For more examples, run: python3 smart_analyzer.py --help-examples
         choices=["console", "html", "markdown", "json"],
     )
     # Model and generation controls
-    p.add_argument("--model", default=CLAUDE_MODEL, help="Override Claude model identifier")
+    p.add_argument("--model", default=CLAUDE_MODEL, help=model_cli_help())
     p.add_argument("--max-tokens", type=int, default=4000, help="Max tokens per response")
     p.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature (0.0 determinism)")
     p.add_argument("--max-retries", type=int, default=3, help="Max retries for API calls with exponential backoff")
@@ -1038,9 +1040,10 @@ def main() -> None:
         # Fallback: create a minimal context for backward compatibility
         console.print("[yellow]Warning: scrynet_context not available, some features disabled[/yellow]")
     
+    resolved_model = resolve_model(args.model)
     analyzer = SmartAnalyzer(
         console, client, context, 
-        model=args.model, 
+        model=resolved_model, 
         default_max_tokens=args.max_tokens, 
         temperature=args.temperature, 
         repo_root=None,

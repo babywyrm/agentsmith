@@ -92,16 +92,13 @@ class CostTracker:
             self.api_calls += 1
     
     def estimate_cost(self, model: str) -> float:
-        """Estimate cost based on model pricing."""
-        # Claude 3.5 Haiku pricing (as of 2024)
-        pricing = {
-            "claude-3-5-haiku-20241022": {"input": 0.80 / 1_000_000, "output": 4.00 / 1_000_000},
-            "claude-3-5-sonnet-20241022": {"input": 3.00 / 1_000_000, "output": 15.00 / 1_000_000},
-            "claude-3-opus-20240229": {"input": 15.00 / 1_000_000, "output": 75.00 / 1_000_000},
-        }
+        """Estimate cost based on model pricing (sourced from model registry)."""
+        from lib.model_registry import get_model_pricing
         
-        rates = pricing.get(model, pricing["claude-3-5-haiku-20241022"])
-        return (self.input_tokens * rates["input"]) + (self.output_tokens * rates["output"])
+        input_per_m, output_per_m = get_model_pricing(model)
+        input_rate = input_per_m / 1_000_000
+        output_rate = output_per_m / 1_000_000
+        return (self.input_tokens * input_rate) + (self.output_tokens * output_rate)
     
     def summary(self, model: str) -> Dict[str, Any]:
         """Return summary statistics."""

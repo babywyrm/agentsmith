@@ -15,20 +15,15 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+from lib.model_registry import get_pricing_dict, get_model_pricing, get_default_model, DEFAULT_MODEL_DEF
 
-# Model pricing per 1M tokens (as of 2024)
+
+# Model pricing per 1M tokens - sourced from centralized model registry
 # Format: (input_price_per_1M, output_price_per_1M)
-MODEL_PRICING = {
-    "claude-3-5-haiku-20241022": (0.25, 1.25),  # $0.25/$1.25 per 1M tokens
-    "claude-3-5-sonnet-20241022": (3.00, 15.00),  # $3.00/$15.00 per 1M tokens
-    "claude-3-opus-20240229": (15.00, 75.00),  # $15.00/$75.00 per 1M tokens
-    "claude-3-5-sonnet": (3.00, 15.00),  # Same as sonnet-20241022
-    "claude-3-haiku-20240307": (0.25, 1.25),  # $0.25/$1.25 per 1M tokens
-    "claude-3-sonnet-20240229": (3.00, 15.00),  # $3.00/$15.00 per 1M tokens
-}
+MODEL_PRICING = get_pricing_dict()
 
-# Default pricing for unknown models (conservative estimate using Haiku rates)
-DEFAULT_PRICING = (0.25, 1.25)
+# Default pricing for unknown models
+DEFAULT_PRICING = (DEFAULT_MODEL_DEF.input_price, DEFAULT_MODEL_DEF.output_price)
 
 
 @dataclass
@@ -36,7 +31,7 @@ class APICall:
     """Represents a single API call with token usage."""
     stage: str  # e.g., "prioritization", "analysis", "payload", "annotation", "threat_modeling"
     profile: Optional[str] = None  # AI profile used (e.g., "owasp", "ctf")
-    model: str = "claude-3-5-haiku-20241022"
+    model: str = get_default_model()
     input_tokens: int = 0
     output_tokens: int = 0
     file: Optional[str] = None  # File being analyzed (if applicable)

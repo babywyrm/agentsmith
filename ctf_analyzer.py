@@ -40,9 +40,11 @@ try:
 except ImportError:
     CONTEXT_AVAILABLE = False
 
+from lib.model_registry import get_default_model, resolve_model, model_cli_help
+
 
 # ---------- Constants ----------
-CLAUDE_MODEL: Final = "claude-3-5-haiku-20241022"
+CLAUDE_MODEL: Final = get_default_model()
 DEFAULT_MAX_FILE_BYTES: Final = 500_000
 DEFAULT_MAX_FILES: Final = 400
 
@@ -322,7 +324,7 @@ Examples:
     p.add_argument("--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES)
     p.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     p.add_argument("--prioritize-top", type=int, default=10, help="Prioritize top N files for CTF analysis")
-    p.add_argument("--model", default=CLAUDE_MODEL, help="Claude model identifier")
+    p.add_argument("--model", default=CLAUDE_MODEL, help=model_cli_help())
     p.add_argument("--max-tokens", type=int, default=4000, help="Max tokens per response")
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--max-retries", type=int, default=3)
@@ -407,11 +409,12 @@ def main() -> None:
     # Initialize analyzer
     api_key = get_api_key()
     client = anthropic.Anthropic(api_key=api_key)
+    resolved_model = resolve_model(args.model)
     analyzer = CTFAnalyzer(
         console=console,
         client=client,
         context=context,
-        model=args.model,
+        model=resolved_model,
         default_max_tokens=args.max_tokens,
         temperature=args.temperature,
         repo_root=repo_path,
@@ -485,7 +488,7 @@ def main() -> None:
     console.print(f"\n[green]✓ Analysis complete: {len(findings)} findings, {len([f for f in findings if f.impact in ['CRITICAL', 'HIGH']])} high-impact[/green]")
     
     if context:
-        cost_summary = context.get_cost_summary(args.model)
+        cost_summary = context.get_cost_summary(resolved_model)
         total_cost = cost_summary.get("estimated_cost_usd", 0.0)
         api_calls = cost_summary.get("api_calls", 0)
         cache_hits = cost_summary.get("cache_hits", 0)

@@ -15,8 +15,11 @@ import argparse
 import sys
 from pathlib import Path
 
+from lib.model_registry import get_default_model, model_cli_help
+
 
 def main():
+    _default_model = get_default_model()
     parser = argparse.ArgumentParser(
         description="🔍 SCRYNET - Unified Security Scanner\n\n"
         "Combine fast static analysis with AI-powered contextual security review.\n"
@@ -131,7 +134,7 @@ def main():
     analyze_parser.add_argument('--max-files', type=int, default=400, help='Max files to analyze')
     analyze_parser.add_argument('--prioritize-top', type=int, default=15, help='Top N files to prioritize')
     analyze_parser.add_argument('--format', nargs='*', default=['console'], choices=['console', 'html', 'markdown', 'json'])
-    analyze_parser.add_argument('--model', default='claude-3-5-haiku-20241022', help='Claude model')
+    analyze_parser.add_argument('--model', default=_default_model, help=model_cli_help())
     analyze_parser.add_argument('--max-tokens', type=int, default=4000, help='Max tokens per response')
     analyze_parser.add_argument('--temperature', type=float, default=0.0, help='Sampling temperature')
     analyze_parser.add_argument('--top-n', type=int, default=5, help='Top N findings for payloads/annotations')
@@ -247,7 +250,7 @@ def main():
     hybrid_parser.add_argument('--parallel', action='store_true', help='Run AI analysis in parallel')
     hybrid_parser.add_argument('--verbose', action='store_true', help='Verbose output with colors and details')
     hybrid_parser.add_argument('--debug', action='store_true', help='Debug mode')
-    hybrid_parser.add_argument('--model', help='Claude model to use (default: claude-3-5-haiku-20241022)')
+    hybrid_parser.add_argument('--model', default=_default_model, help=model_cli_help())
     hybrid_parser.add_argument('--prioritize', action='store_true', help='Enable AI prioritization (recommended for large repos)')
     hybrid_parser.add_argument('--prioritize-top', type=int, default=15, help='Number of top files to prioritize (default: 15)')
     hybrid_parser.add_argument('--question', help='Analysis question for prioritization')
