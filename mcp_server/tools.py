@@ -164,6 +164,13 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Focus question for AI prioritization (e.g., 'find SQL injection vulnerabilities')",
                 },
+                "top_n": {
+                    "type": "integer",
+                    "description": "Number of top findings to generate payloads/annotations for (default: 5, max: 20)",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20,
+                },
             },
         },
     },
@@ -299,8 +306,9 @@ async def handle_scan_hybrid(arguments: dict[str, Any]) -> str:
     repo_path = _validate_path(arguments["repo_path"])
     profile = arguments.get("profile", "owasp")
     preset = arguments.get("preset")
-    prioritize_top = arguments.get("prioritize_top", 15)
-    question = arguments.get("question", "find security vulnerabilities")
+    prioritize_top = min(arguments.get("prioritize_top", 10), 50)  # cap at 50 via MCP
+    top_n = min(arguments.get("top_n", 5), 20)  # cap payloads/annotations
+    question = arguments.get("question", "find the most critical security vulnerabilities")
 
     if question and len(question) > MAX_QUESTION_LENGTH:
         question = question[:MAX_QUESTION_LENGTH]
@@ -309,29 +317,41 @@ async def handle_scan_hybrid(arguments: dict[str, Any]) -> str:
         return json.dumps({"error": "Scanner binary not found. Run ./setup.sh to build it."})
 
     # Build orchestrator command
+    # When a preset is specified, let the preset control all settings.
+    # Only add extra flags when running without a preset.
     cmd = [
         sys.executable, str(PROJECT_ROOT / "orchestrator.py"),
         str(repo_path), str(SCANNER_BIN),
-        "--profile", profile,
-        "--prioritize",
-        "--prioritize-top", str(prioritize_top),
-        "--question", question,
-        "--generate-payloads",
-        "--annotate-code",
-        "--export-format", "json", "csv", "markdown", "html",
         "--verbose",
     ]
 
     if preset:
+        # Preset controls everything — only override prioritize_top if explicitly set
         cmd.extend(["--preset", preset])
+        if arguments.get("prioritize_top"):
+            cmd.extend(["--prioritize-top", str(prioritize_top)])
+        if arguments.get("question"):
+            cmd.extend(["--question", question])
+    else:
+        # No preset — use explicit flags
+        cmd.extend([
+            "--profile", profile,
+            "--prioritize",
+            "--prioritize-top", str(prioritize_top),
+            "--question", question,
+            "--generate-payloads",
+            "--annotate-code",
+            "--top-n", str(top_n),
+            "--export-format", "json", "csv", "markdown", "html",
+        ])
 
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600,
+            cmd, capture_output=True, text=True, timeout=180,
             cwd=str(PROJECT_ROOT),
         )
     except subprocess.TimeoutExpired:
-        return json.dumps({"error": "Hybrid scan timed out after 10 minutes"})
+        return json.dumps({"error": "Hybrid scan timed out after 3 minutes. Try reducing prioritize_top or using --preset quick."})
     except Exception as e:
         return json.dumps({"error": f"Orchestrator failed: {e}"})
 
