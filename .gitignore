@@ -8,8 +8,6 @@
 *.out
 scanner
 *output*
-*.gowasp.cache*
-
 # agentsmith cache and review state
 .agentsmith_cache/
 *.agentsmith.cache*
@@ -91,10 +89,9 @@ venv/
 ENV/
 env/
 
-# Gowasp cache directories
+# Legacy cache directories (kept for cleanup)
 .gowasp_cache/
 .gowasp_cache
-*.gowasp.cache*
 
 # Generated files
 gen/

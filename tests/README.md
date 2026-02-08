@@ -6,8 +6,7 @@ Python test suite for Agent Smith core functionality.
 
 ### Quick Test
 ```bash
-cd gowasp
-source .venv/bin/activate
+source activate.sh
 python3 tests/test_imports.py
 ```
 
@@ -94,7 +93,7 @@ Located in `scripts/`:
 
 Run with:
 ```bash
-cd gowasp/tests/scripts
+cd tests/scripts
 ./test_dvwa.sh
 ```
 

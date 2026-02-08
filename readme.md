@@ -1,4 +1,4 @@
-# 🔍 Agent Smith - Unified Security Scanner
+# Agent Smith - Unified Security Scanner
 
 > Do you hate reviews?  
 > Do you love CTFs?  
@@ -10,57 +10,87 @@
 
 **Agent Smith** is a comprehensive, multi-mode security scanning tool that combines fast static analysis with AI-powered contextual analysis. It supports multiple scanning modes optimized for different use cases, from quick CI/CD checks to deep security audits.
 
-## ✨ What's New
+## What's New
 
-- **🎯 AI Prioritization**: Automatically selects top N most relevant files (saves time & API costs)
-- **💣 Payload Generation**: Creates Red/Blue team payloads for vulnerability verification
-- **📝 Code Annotations**: Shows vulnerable code with inline fixes and recommendations
-- **🌈 Rich UI**: Beautiful colors, spinners, and progress bars with real-time feedback
-- **📄 Multiple Export Formats**: JSON, CSV, Markdown, and HTML reports
-- **📍 Precise Location Tracking**: File paths and line numbers in all outputs
-- **🔄 Unified CLI**: Single entry point (`agentsmith.py`) for all modes
+- **AI Prioritization**: Automatically selects top N most relevant files (saves time & API costs)
+- **Payload Generation**: Creates Red/Blue team payloads for vulnerability verification
+- **Code Annotations**: Shows vulnerable code with inline fixes and recommendations
+- **Rich UI**: Beautiful colors, spinners, and progress bars with real-time feedback
+- **Multiple Export Formats**: JSON, CSV, Markdown, and HTML reports
+- **Precise Location Tracking**: File paths and line numbers in all outputs
+- **Unified CLI**: Single entry point (`agentsmith.py`) for all modes
+- **Auto-loaded Rules**: 70+ OWASP rules loaded automatically from `rules/` directory
+- **Preset System**: 6 optimized presets for common workflows (`--preset ctf`, `--preset pentest`, etc.)
+- **Smart Defaults**: Auto-prioritization, auto-deduplication, and smart top-n
 
-## 🚀 Features
+## Features
 
 ### Core Capabilities
 
 - **Multi-Language Support**: Go, JavaScript, Python, Java, PHP, HTML, YAML, Helm templates
 - **Multiple Scanning Modes**: Static-only, AI-powered analysis, CTF-focused, and hybrid
-- **OWASP Top 10 Coverage**: Comprehensive security rule sets
+- **OWASP Top 10 Coverage**: 70+ security rules across 5 rule files
 - **AI-Powered Analysis**: Claude AI integration for contextual vulnerability detection
-- **🎯 Smart Prioritization**: AI selects most relevant files (saves time & cost)
-- **💣 Payload Generation**: Red/Blue team payloads for verification
-- **📝 Code Annotations**: Inline code fixes and recommendations
-- **🌈 Rich UI**: Colors, spinners, progress bars, real-time feedback
+- **Smart Prioritization**: AI selects most relevant files (saves time & cost)
+- **Payload Generation**: Red/Blue team payloads for verification
+- **Code Annotations**: Inline code fixes and recommendations
+- **Rich UI**: Colors, spinners, progress bars, real-time feedback
 - **Review State Management**: Resume interrupted reviews, track progress
 - **API Caching**: Speed up repeated runs with intelligent caching
 - **Cost Tracking**: Monitor API usage and costs
 - **Multiple Output Formats**: Console, HTML, Markdown, JSON, CSV
-- **📍 Precise Tracking**: File paths and line numbers in all outputs
+- **Precise Tracking**: File paths and line numbers in all outputs
 
-## 🔧 Installation
+## Installation
 
-### 1. Build the Go Scanner
+### Quick Setup (Recommended)
 
 ```bash
 git clone https://github.com/babywyrm/agentsmith.git
-cd gowasp
+cd agentsmith
 
-# Build the scanner binary
-go build -o scanner agentsmith.go
-```
+# Run the setup script (builds Go scanner + Python environment)
+./setup.sh
 
-### 2. Set up Python Environment
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
+# Activate the environment
+source activate.sh
 
 # Set your API key (required for AI modes)
 export CLAUDE_API_KEY="sk-ant-api03-..."
 ```
 
-## 📖 Usage
+The setup script handles everything:
+- Detects and builds the Go scanner binary
+- Creates a Python virtual environment
+- Installs all Python dependencies
+- Verifies the environment is ready
+
+### Manual Setup
+
+If you prefer manual setup:
+
+```bash
+# 1. Build the Go scanner binary (requires Go 1.21+)
+go build -o scanner agentsmith.go
+
+# 2. Set up Python environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Set your API key
+export CLAUDE_API_KEY="sk-ant-api03-..."
+```
+
+### Setup Options
+
+```bash
+./setup.sh             # Full setup (Go + Python)
+./setup.sh --python    # Python-only (skip Go build)
+./setup.sh --go        # Go-only (build scanner binary)
+```
+
+## Usage
 
 Agent Smith provides a unified entry point with multiple scanning modes:
 
@@ -69,7 +99,6 @@ Agent Smith provides a unified entry point with multiple scanning modes:
 **`agentsmith.py` is the main entry point for all Agent Smith operations.**
 
 ```bash
-cd gowasp
 python3 agentsmith.py <mode> [options]
 ```
 
@@ -109,7 +138,7 @@ python3 agentsmith.py analyze /path/to/repo "find security vulnerabilities" \
 ```
 
 **Features:**
-- Multi-stage analysis (Prioritization → Deep Dive → Synthesis)
+- Multi-stage analysis (Prioritization -> Deep Dive -> Synthesis)
 - Review state management
 - API caching
 - Cost tracking
@@ -143,7 +172,7 @@ python3 agentsmith.py ctf /path/to/ctf "find all vulnerabilities" \
 - Highlights potential flags and secrets
 - Separate cache namespace
 
-#### 4. Hybrid Mode (Static + AI) ⚡ **RECOMMENDED**
+#### 4. Hybrid Mode (Static + AI) -- **RECOMMENDED**
 
 Combines fast static scanning with AI analysis - best of both worlds:
 
@@ -163,6 +192,7 @@ python3 orchestrator.py /path/to/repo ./scanner \
 
 **Features:**
 - Runs Go scanner + AI analysis
+- **Auto-loaded Rules**: All 70+ rules from `rules/` loaded automatically
 - **AI Prioritization**: Selects top N most relevant files (saves time & cost)
 - **Payload Generation**: Creates Red/Blue team payloads for verification
 - **Code Annotations**: Shows vulnerable code with inline fixes
@@ -174,21 +204,44 @@ python3 orchestrator.py /path/to/repo ./scanner \
 
 **Key Options:**
 - `--profile`: AI analysis profiles (comma-separated, default: owasp)
+- `--preset`: Use a preset configuration (quick, ctf, ctf-fast, security-audit, pentest, compliance)
 - `--prioritize`: Enable AI prioritization (HIGHLY RECOMMENDED for 50+ files)
 - `--prioritize-top N`: Number of files to prioritize (default: 15)
 - `--question "..."`: Guides prioritization (be specific!)
 - `--generate-payloads`: Generate Red/Blue team payloads
 - `--annotate-code`: Generate annotated code snippets
 - `--top-n N`: Number of findings for payloads/annotations (default: 5)
+- `--static-rules`: Override auto-loaded rules with custom rule files
 - `--export-format`: Report formats (json, csv, markdown, html)
 - `--output-dir`: Custom output directory (default: ./output)
-- `--static-rules`: Static rule files
 - `--severity`: Minimum severity filter
 - `--threat-model`: Perform threat modeling
 - `--parallel`: Run AI analysis in parallel
 - `--verbose`: Show colors, spinners, and detailed progress
+- `--show-quick-wins`: Highlight most exploitable findings
 
-## 🎯 Examples
+### Presets
+
+One-command configurations for common workflows:
+
+```bash
+# Quick scan (fast, minimal output)
+python3 orchestrator.py /path/to/repo ./scanner --preset quick
+
+# CTF challenge analysis
+python3 orchestrator.py /path/to/repo ./scanner --preset ctf
+
+# Full security audit
+python3 orchestrator.py /path/to/repo ./scanner --preset security-audit
+
+# Penetration testing
+python3 orchestrator.py /path/to/repo ./scanner --preset pentest
+
+# List all presets
+python3 orchestrator.py --list-presets
+```
+
+## Examples
 
 ### Quick Security Scan
 
@@ -263,41 +316,104 @@ python3 orchestrator.py /path/to/repo ./scanner \
   --verbose
 ```
 
-## 📁 Project Structure
+## Static Rules
+
+Agent Smith includes 70+ security rules organized into 5 rule files:
 
 ```
-gowasp/
-├── agentsmith.py              # ⭐ MAIN ENTRY POINT - Use this!
-├── smart_analyzer.py       # AI-powered analyzer
-├── ctf_analyzer.py         # CTF-focused analyzer
-├── orchestrator.py          # Hybrid static + AI orchestrator
-├── scanner                 # Go scanner binary
-├── agentsmith.go              # Go scanner source
-├── rules/                  # Security rule sets
-│   ├── rules_core.json
-│   ├── rules_secrets.json
-│   └── ...
-├── lib/                    # Shared Python library
-│   ├── common.py           # Utilities
-│   ├── models.py           # Data models
-│   ├── output_manager.py   # Output formatting
-│   ├── agentsmith_context.py # Caching & review state
-│   ├── prompts.py          # Prompt factories
-│   └── ctf_prompts.py      # CTF prompts
-├── prompts/                # Text-based prompt templates
+rules/
+├── rules_core.json          # Core OWASP Top 10 rules (injection, XSS, auth, etc.)
+├── rules_secrets.json       # Secret/credential detection
+├── rules_infra.json         # Infrastructure security (TLS, headers, CORS)
+├── rules_cicd.json          # CI/CD pipeline security
+└── rules_supplychain.json   # Supply chain / dependency security
+```
+
+### Auto-Loading
+
+In hybrid mode (`orchestrator.py`), all rule files from `rules/` are **automatically loaded**. No need to specify `--static-rules` unless you want to use custom rules.
+
+### Custom Rules
+
+You can provide your own rule files or override the defaults:
+
+```bash
+# Use only custom rules
+python3 orchestrator.py /path/to/repo ./scanner \
+  --static-rules ./my-rules.json
+
+# Use multiple custom rule files
+python3 orchestrator.py /path/to/repo ./scanner \
+  --static-rules ./rules/rules_core.json,./my-extra-rules.json
+```
+
+### Rule Format
+
+Each rule file is a JSON array:
+
+```json
+[
+  {
+    "name": "SQL Injection",
+    "pattern": "(?i)query.*\\+.*request",
+    "severity": "HIGH",
+    "category": "A03",
+    "description": "SQL injection via string concatenation",
+    "remediation": "Use parameterized queries."
+  }
+]
+```
+
+### Regenerating Rules from Go Source
+
+The `rules.go` file contains the master rule definitions. To regenerate JSON rule files:
+
+```bash
+go run gen_rule_json.go rules.go > rules/rules_core.json
+```
+
+## Project Structure
+
+```
+agentsmith/
+├── agentsmith.py              # Main entry point - unified CLI dispatcher
+├── agentsmith.go              # Go scanner source code
+├── scanner                    # Go scanner binary (built by setup.sh)
+├── orchestrator.py            # Hybrid static + AI orchestrator (recommended)
+├── smart_analyzer.py          # AI-powered multi-stage analyzer
+├── ctf_analyzer.py            # CTF-focused analyzer
+├── rules/                     # Static analysis rules (auto-loaded)
+│   ├── rules_core.json        # Core OWASP Top 10 rules
+│   ├── rules_secrets.json     # Secret/credential detection
+│   ├── rules_infra.json       # Infrastructure security
+│   ├── rules_cicd.json        # CI/CD pipeline security
+│   └── rules_supplychain.json # Supply chain security
+├── lib/                       # Shared Python library
+│   ├── common.py              # Utilities and normalization
+│   ├── models.py              # Data models
+│   ├── config.py              # Presets and smart defaults
+│   ├── output_manager.py      # Output formatting
+│   ├── agentsmith_context.py  # Caching & review state
+│   ├── model_registry.py      # AI model configuration
+│   ├── prompts.py             # Prompt factories
+│   ├── ctf_prompts.py         # CTF-specific prompts
+│   └── universal_detector.py  # Tech stack detection
+├── prompts/                   # Text-based prompt templates
 │   ├── owasp_profile.txt
+│   ├── owasp_enhanced_profile.txt
+│   ├── ctf_enhanced_profile.txt
 │   ├── attacker_profile.txt
-│   └── performance_profile.txt
-├── test_targets/           # Test applications
-│   ├── DVWA/
-│   └── WebGoat/
-├── tests/                  # Test suite
-├── output/                 # Analysis results (gitignored)
-├── test-reports/           # Test report outputs (gitignored)
-└── security-reports/       # Custom report outputs (gitignored)
+│   └── ...
+├── rules.go                   # Master rule definitions (Go source)
+├── gen_rule_json.go           # Rule JSON generator utility
+├── tests/                     # Test suite (190 tests)
+├── setup.sh                   # Full setup script (Go + Python)
+├── activate.sh                # Quick environment activation
+├── requirements.txt           # Python dependencies
+└── output/                    # Analysis results (gitignored)
 ```
 
-## 🔍 Review State & Caching
+## Review State & Caching
 
 ### Review State Management
 
@@ -339,20 +455,20 @@ Cache location: `.agentsmith_cache/`
 - Reviews: `.agentsmith_cache/reviews/`
 - API Cache: `.agentsmith_cache/api_cache/` (namespaced by mode)
 
-## 💰 Cost Tracking
+## Cost Tracking
 
 After each AI-powered run, you'll see a cost summary:
 
 ```
 API Usage Summary
-┌──────────────┬─────────┐
-│ Metric       │ Value   │
-├──────────────┼─────────┤
-│ API Calls    │ 15      │
-│ Cache Hits   │ 8       │
-│ Total Tokens │ 57,680  │
-│ Estimated Cost │ $0.052│
-└──────────────┴─────────┘
++--------------+---------+
+| Metric       | Value   |
++--------------+---------+
+| API Calls    | 15      |
+| Cache Hits   | 8       |
+| Total Tokens | 57,680  |
+| Estimated Cost | $0.052|
++--------------+---------+
 ```
 
 **Tips:**
@@ -360,7 +476,7 @@ API Usage Summary
 - Resume reviews to maximize cache hits
 - Use `--no-cache` to force fresh API calls
 
-## 🎉 Tips for Effective Scanning
+## Tips for Effective Scanning
 
 1. **For CI/CD**: Use `static` mode with `--severity HIGH` for fast, free checks
 2. **For Deep Reviews**: Use `analyze` mode with `--enable-review-state`
@@ -383,9 +499,7 @@ API Usage Summary
   - Good: `"find SQL injection in user input handling"`
   - Bad: `"find bugs"`
 
-## 📚 Additional Resources
-
-### Help & Examples
+## Help & Examples
 
 ```bash
 # Standard help
@@ -393,6 +507,15 @@ python3 agentsmith.py <mode> --help
 
 # Comprehensive examples (analyze mode)
 python3 agentsmith.py analyze --help-examples
+
+# Orchestrator help (hybrid mode)
+python3 orchestrator.py --help
+
+# List available presets
+python3 orchestrator.py --list-presets
+
+# List available AI profiles
+python3 orchestrator.py --list-profiles
 ```
 
 ### Direct Script Access
@@ -412,7 +535,7 @@ python3 orchestrator.py /path/to/repo ./scanner --profile owasp
 
 **Note:** For most users, `agentsmith.py` is the recommended entry point.
 
-## 🏗️ Architecture
+## Architecture
 
 Agent Smith uses a modular architecture:
 
@@ -421,8 +544,9 @@ Agent Smith uses a modular architecture:
 - **Orchestrator**: `orchestrator.py` - Hybrid static + AI
 - **Library**: `lib/` - Shared modules (common, models, output, context, prompts)
 - **Scanner**: `scanner` - Fast Go-based static analyzer
+- **Rules**: `rules/` - JSON rule files (auto-loaded by orchestrator)
 
-## 🔒 Security & Privacy
+## Security & Privacy
 
 ### Never Commit These Files
 
@@ -449,19 +573,13 @@ Agent Smith outputs may contain sensitive information. The following are automat
 git status
 
 # Verify no secrets in staged files
-git diff --cached | grep -i "api.*key\|secret\|password" || echo "✓ No secrets found"
+git diff --cached | grep -i "api.*key\|secret\|password" || echo "No secrets found"
 
 # Check for large output files
-git status --porcelain | grep -E "(output|report|findings)" || echo "✓ No output files staged"
+git status --porcelain | grep -E "(output|report|findings)" || echo "No output files staged"
 ```
 
-## 📝 License
-
-[Add your license information here]
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 **Fast static scan (no API key needed):**
 ```bash

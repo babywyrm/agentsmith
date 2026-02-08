@@ -159,8 +159,7 @@ tests/
 
 ### All Tests
 ```bash
-cd gowasp
-source .venv/bin/activate
+source activate.sh
 python3 -m unittest discover tests -v
 ```
 

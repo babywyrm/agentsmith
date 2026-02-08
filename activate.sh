@@ -4,18 +4,16 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ ! -d "$SCRIPT_DIR/.venv" ]; then
-    echo "❌ Virtual environment not found. Run ./setup.sh first."
+    echo "Virtual environment not found. Run ./setup.sh first."
     exit 1
 fi
 
 source "$SCRIPT_DIR/.venv/bin/activate"
 
-echo "✓ Virtual environment activated"
-echo "You're now in: $(pwd)"
+echo "Agent Smith environment activated"
 echo ""
-echo "Run Agent Smith commands:"
-echo "  python3 agentsmith.py --help"
+echo "Commands:"
+echo "  python3 agentsmith.py --help       # All modes"
+echo "  python3 orchestrator.py --help     # Hybrid mode (recommended)"
+echo "  python3 orchestrator.py --list-presets   # Available presets"
 echo ""
-
-
-

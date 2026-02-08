@@ -102,7 +102,19 @@ class Orchestrator:
         self.debug = debug
         self.severity = severity.upper() if severity else None
         self.profiles = [p.strip() for p in profiles.split(',')]
-        self.static_rules = static_rules
+        # Auto-discover rules from rules/ directory if no explicit rules specified
+        if static_rules:
+            self.static_rules = static_rules
+        else:
+            rules_dir = Path(__file__).parent / "rules"
+            if rules_dir.is_dir():
+                rule_files = sorted(rules_dir.glob("*.json"))
+                if rule_files:
+                    self.static_rules = ",".join(str(f) for f in rule_files)
+                else:
+                    self.static_rules = None
+            else:
+                self.static_rules = None
         self.threat_model = threat_model
         self.verbose = verbose
         self.model = resolve_model(model) if model else CLAUDE_MODEL
