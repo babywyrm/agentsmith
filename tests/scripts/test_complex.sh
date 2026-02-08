@@ -48,7 +48,7 @@ echo ""
 echo -e "${BLUE}Running complex test...${NC}"
 echo ""
 
-python3 ../../scrynet.py hybrid "$TARGET" "$SCANNER" \
+python3 ../../agentsmith.py hybrid "$TARGET" "$SCANNER" \
     --profile owasp,ctf \
     --prioritize \
     --prioritize-top 6 \

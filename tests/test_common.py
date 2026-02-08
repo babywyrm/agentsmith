@@ -210,7 +210,7 @@ class TestNormalizeFinding(unittest.TestCase):
             'fix': 'Use prepared statements',
             'description': 'User input directly in SQL query'
         }
-        normalized = normalize_finding(finding, source='scrynet')
+        normalized = normalize_finding(finding, source='agentsmith')
         
         self.assertEqual(normalized['file'], '/test/vuln.php')
         self.assertEqual(normalized['line_number'], 42)
@@ -220,7 +220,7 @@ class TestNormalizeFinding(unittest.TestCase):
         self.assertEqual(normalized['category'], 'A03')
         self.assertEqual(normalized['recommendation'], 'Use prepared statements')
         self.assertEqual(normalized['description'], 'User input directly in SQL query')
-        self.assertEqual(normalized['source'], 'scrynet')
+        self.assertEqual(normalized['source'], 'agentsmith')
         self.assertEqual(normalized['explanation'], 'User input directly in SQL query')
     
     def test_normalize_does_not_modify_original(self):

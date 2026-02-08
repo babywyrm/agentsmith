@@ -8,7 +8,7 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🔍 Testing All SCRYNET Profiles${NC}"
+echo -e "${BLUE}🔍 Testing All Agent Smith Profiles${NC}"
 echo "=================================="
 echo ""
 
@@ -36,7 +36,7 @@ PROFILES=("ctf" "code_review" "modern" "soc2" "pci" "compliance")
 for profile in "${PROFILES[@]}"; do
     echo -e "${GREEN}Testing $profile profile...${NC}"
     
-    python3 ../../scrynet.py hybrid "$TARGET" "$SCANNER" \
+    python3 ../../agentsmith.py hybrid "$TARGET" "$SCANNER" \
         --profile "$profile" \
         --prioritize \
         --prioritize-top 5 \

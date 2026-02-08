@@ -8,7 +8,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}🔬 Advanced SCRYNET Testing${NC}"
+echo -e "${BLUE}🔬 Advanced Agent Smith Testing${NC}"
 echo "=================================="
 echo ""
 
@@ -30,7 +30,7 @@ TARGET="../test_targets/DVWA"
 SCANNER="../../scanner"
 
 echo -e "${YELLOW}Test 1: Multi-Profile with Deduplication (OWASP + CTF)${NC}"
-python3 ../../scrynet.py hybrid "$TARGET" "$SCANNER" \
+python3 ../../agentsmith.py hybrid "$TARGET" "$SCANNER" \
     --profile owasp,ctf \
     --prioritize \
     --prioritize-top 10 \
@@ -49,7 +49,7 @@ echo -e "${GREEN}✓ Test 1 complete${NC}"
 echo ""
 
 echo -e "${YELLOW}Test 2: Compliance Suite (SOC2 + PCI + Compliance)${NC}"
-python3 ../../scrynet.py hybrid "$TARGET" "$SCANNER" \
+python3 ../../agentsmith.py hybrid "$TARGET" "$SCANNER" \
     --profile soc2,pci,compliance \
     --prioritize \
     --prioritize-top 10 \
@@ -67,7 +67,7 @@ echo -e "${GREEN}✓ Test 2 complete${NC}"
 echo ""
 
 echo -e "${YELLOW}Test 3: All Profiles with Aggressive Deduplication${NC}"
-python3 ../../scrynet.py hybrid "$TARGET" "$SCANNER" \
+python3 ../../agentsmith.py hybrid "$TARGET" "$SCANNER" \
     --profile owasp,ctf,code_review \
     --prioritize \
     --prioritize-top 8 \

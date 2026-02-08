@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Help Examples Module for SCRYNET Smart Analyzer
+Help Examples Module for Agent Smith Smart Analyzer
 
 Provides comprehensive usage examples and scenarios for all features.
 Can be displayed via --help-examples flag or imported for interactive help.
@@ -18,7 +18,7 @@ def print_help_examples():
     """Print comprehensive usage examples and scenarios."""
     
     examples = """
-# SCRYNET Smart Analyzer - Usage Examples
+# Agent Smith Smart Analyzer - Usage Examples
 
 ## Quick Start
 
@@ -92,7 +92,7 @@ python3 smart_analyzer.py . --review-status abc123def456
 
 **View context file (for Cursor/Claude):**
 ```bash
-cat .scrynet_cache/reviews/_abc123def456_context.md
+cat .agentsmith_cache/reviews/_abc123def456_context.md
 ```
 
 ---
@@ -292,7 +292,7 @@ python3 smart_analyzer.py WebGoat/src/ \\
 
 **Step 2: Review the Results**
 - Check the output files (HTML, Markdown, JSON)
-- Review the context file: `.scrynet_cache/reviews/_<review_id>_context.md`
+- Review the context file: `.agentsmith_cache/reviews/_<review_id>_context.md`
 - Use the context file in Cursor/Claude for follow-up questions
 
 **Step 3: Resume if Interrupted**
@@ -401,10 +401,10 @@ This creates:
 ### Want to start completely fresh
 ```bash
 # Clear everything
-rm -rf .scrynet_cache/*
+rm -rf .agentsmith_cache/*
 
 # Or just clear cache (keep reviews)
-rm -rf .scrynet_cache/api_cache/*
+rm -rf .agentsmith_cache/api_cache/*
 ```
 
 ### Review state not resuming
@@ -430,7 +430,7 @@ rm -rf .scrynet_cache/api_cache/*
 ## Integration with Cursor/Claude
 
 1. Run analysis with `--enable-review-state`
-2. Open the context file: `.scrynet_cache/reviews/_<review_id>_context.md`
+2. Open the context file: `.agentsmith_cache/reviews/_<review_id>_context.md`
 3. Use it as a prompt anchor in Cursor/Claude:
    ```
    "Continue the security review from this context: [paste context file]"
@@ -449,7 +449,7 @@ For more information, see `readme.md` in the beta directory.
     
     console.print(Panel(
         Markdown(examples),
-        title="[bold cyan]SCRYNET Smart Analyzer - Usage Examples[/bold cyan]",
+        title="[bold cyan]Agent Smith Smart Analyzer - Usage Examples[/bold cyan]",
         border_style="cyan",
         padding=(1, 2)
     ))

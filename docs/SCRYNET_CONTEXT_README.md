@@ -1,12 +1,12 @@
-# SCRYNET Context Library
+# Agent Smith Context Library
 
-> **Location**: The implementation is in `lib/scrynet_context.py`, not a standalone package.
+> **Location**: The implementation is in `lib/agentsmith_context.py`, not a standalone package.
 
-A unified, type-safe Python library for managing review context, API caching, and cost tracking in the SCRYNET code analysis system.
+A unified, type-safe Python library for managing review context, API caching, and cost tracking in the Agent Smith code analysis system.
 
 ## Overview
 
-The `scrynet_context` module (in `lib/scrynet_context.py`) provides a single, cohesive interface for:
+The `agentsmith_context` module (in `lib/agentsmith_context.py`) provides a single, cohesive interface for:
 
 - **Review State Management**: Create, resume, and track code review sessions
 - **API Response Caching**: Namespaced caching with automatic key generation
@@ -27,11 +27,11 @@ The `scrynet_context` module (in `lib/scrynet_context.py`) provides a single, co
 ## Quick Start
 
 ```python
-from lib.scrynet_context import ReviewContextManager
+from lib.agentsmith_context import ReviewContextManager
 
 # Initialize
 ctx = ReviewContextManager(
-    cache_dir=".scrynet_cache",
+    cache_dir=".agentsmith_cache",
     use_cache=True,
     enable_cost_tracking=True
 )
@@ -73,7 +73,7 @@ summary = ctx.get_cost_summary("claude-3-5-haiku-20241022")
 ### Directory Structure
 
 ```
-.scrynet_cache/
+.agentsmith_cache/
 ├── reviews/              # Review state files
 │   ├── <review_id>.json  # Review state (JSON)
 │   └── _<review_id>_context.md  # Human-readable context
@@ -355,9 +355,9 @@ The library is designed to be a drop-in replacement for the existing `ReviewStat
 
 ## Example: Full Review Session
 
-See `scrynet_context_example.py` for a complete working example.
+See `agentsmith_context_example.py` for a complete working example.
 
 ## License
 
-Part of the SCRYNET project.
+Part of the Agent Smith project.
 

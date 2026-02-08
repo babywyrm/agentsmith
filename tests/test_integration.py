@@ -29,10 +29,10 @@ class TestNormalizationIntegration(unittest.TestCase):
             'category': 'A03',
         }
         
-        normalized = normalize_finding(static_finding, source='scrynet')
+        normalized = normalize_finding(static_finding, source='agentsmith')
         
         # Verify normalization
-        self.assertEqual(normalized['source'], 'scrynet')
+        self.assertEqual(normalized['source'], 'agentsmith')
         self.assertEqual(normalized['file'], '/test/vuln.php')
         self.assertEqual(normalized['line_number'], 42)
         self.assertEqual(normalized['line'], 42)

@@ -1,6 +1,6 @@
 # Deduplication Code Flow
 
-This document explains exactly where and when deduplication happens in the SCRYNET codebase.
+This document explains exactly where and when deduplication happens in the Agent Smith codebase.
 
 **⚠️ IMPORTANT: Deduplication is OPT-IN only!**
 
@@ -18,7 +18,7 @@ Deduplication **only runs** if you explicitly enable it with the `--deduplicate`
         │  Stage 0: Static Scanner              
         │  - Runs Go scanner                    
         │  - Returns: static_findings[]         
-        │  - Each finding tagged: source='scrynet' 
+        │  - Each finding tagged: source='agentsmith' 
         └──────────────────────────────────────
                             │
                             ▼

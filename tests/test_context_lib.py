@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Quick test script for scrynet_context library.
+Quick test script for agentsmith_context library.
 Tests core functionality without requiring API calls.
 """
 
@@ -10,12 +10,12 @@ from pathlib import Path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from lib.scrynet_context import ReviewContextManager, ReviewState
+from lib.agentsmith_context import ReviewContextManager, ReviewState
 
 def test_basic_functionality():
     """Test basic library functionality."""
     print("=" * 60)
-    print("Testing SCRYNET Context Library")
+    print("Testing Agent Smith Context Library")
     print("=" * 60)
     
     # Create temporary cache directory

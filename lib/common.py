@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Common utilities shared across SCRYNET analyzers.
+Common utilities shared across Agent Smith analyzers.
 Reduces code duplication and provides consistent behavior.
 """
 
@@ -260,7 +260,7 @@ def normalize_finding(
     Args:
         finding: Finding dictionary to normalize
         file_path: Optional file path to set/override
-        source: Optional source identifier (e.g., 'claude-owasp', 'scrynet')
+        source: Optional source identifier (e.g., 'claude-owasp', 'agentsmith')
     
     Returns:
         Normalized finding dictionary (new dict, doesn't modify original)
@@ -368,12 +368,12 @@ def get_line_number(finding: dict) -> int | str:
 # Error Handling Utilities
 # ============================================================================
 
-class ScrynetError(Exception):
-    """Base exception for SCRYNET errors."""
+class AgentSmithError(Exception):
+    """Base exception for Agent Smith errors."""
     pass
 
 
-class APIError(ScrynetError):
+class APIError(AgentSmithError):
     """Exception for API-related errors."""
     def __init__(self, message: str, status_code: Optional[int] = None, original_error: Optional[Exception] = None):
         super().__init__(message)
@@ -381,7 +381,7 @@ class APIError(ScrynetError):
         self.original_error = original_error
 
 
-class FileAnalysisError(ScrynetError):
+class FileAnalysisError(AgentSmithError):
     """Exception for file analysis errors."""
     def __init__(self, file_path: Path | str, message: str, original_error: Optional[Exception] = None):
         super().__init__(f"Error analyzing {file_path}: {message}")

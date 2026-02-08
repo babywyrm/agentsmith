@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cost estimation utility for SCRYNET scans.
+Cost estimation utility for Agent Smith scans.
 
 Estimates API costs before running a scan based on:
 - Number of files

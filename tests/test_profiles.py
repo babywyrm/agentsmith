@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test suite for SCRYNET profile system.
+Test suite for Agent Smith profile system.
 
 Tests profile loading, validation, and basic functionality.
 """

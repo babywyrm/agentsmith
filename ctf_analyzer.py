@@ -35,7 +35,7 @@ from lib.ctf_prompts import CTFPromptFactory
 
 # Unified context management library
 try:
-    from lib.scrynet_context import ReviewContextManager
+    from lib.agentsmith_context import ReviewContextManager
     CONTEXT_AVAILABLE = True
 except ImportError:
     CONTEXT_AVAILABLE = False
@@ -319,7 +319,7 @@ Examples:
     p.add_argument("repo_path", help="Path to the CTF challenge repository")
     p.add_argument("question", nargs="?", default="Find all security vulnerabilities, flags, and exploitable weaknesses", 
                    help="Analysis question (default: find vulnerabilities and flags)")
-    p.add_argument("--cache-dir", default=".scrynet_cache", help="Directory for conversation cache")
+    p.add_argument("--cache-dir", default=".agentsmith_cache", help="Directory for conversation cache")
     p.add_argument("--no-cache", action="store_true", help="Disable cache")
     p.add_argument("--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES)
     p.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)

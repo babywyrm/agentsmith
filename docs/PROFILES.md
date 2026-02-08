@@ -1,4 +1,4 @@
-# SCRYNET Profile Guide
+# Agent Smith Profile Guide
 
 Profiles customize the AI analysis to focus on specific security domains, compliance requirements, or code quality aspects. Each profile uses specialized prompts tailored to its domain.
 
@@ -7,7 +7,7 @@ Profiles customize the AI analysis to focus on specific security domains, compli
 To see all available profiles with descriptions and use cases:
 
 ```bash
-python3 scrynet.py hybrid . ./scanner --list-profiles
+python3 agentsmith.py hybrid . ./scanner --list-profiles
 ```
 
 This command displays:
@@ -276,16 +276,16 @@ You can combine multiple profiles to get comprehensive analysis:
 
 ```bash
 # Security + Code Quality
-python3 scrynet.py hybrid ./repo ./scanner --profile owasp,code_review
+python3 agentsmith.py hybrid ./repo ./scanner --profile owasp,code_review
 
 # Compliance Audit
-python3 scrynet.py hybrid ./repo ./scanner --profile soc2,pci,compliance
+python3 agentsmith.py hybrid ./repo ./scanner --profile soc2,pci,compliance
 
 # Modern Security + Performance
-python3 scrynet.py hybrid ./repo ./scanner --profile modern,performance
+python3 agentsmith.py hybrid ./repo ./scanner --profile modern,performance
 
 # CTF + OWASP (comprehensive security)
-python3 scrynet.py hybrid ./repo ./scanner --profile owasp,ctf
+python3 agentsmith.py hybrid ./repo ./scanner --profile owasp,ctf
 ```
 
 ## Profile Recommendations by Use Case
@@ -350,8 +350,8 @@ Each profile:
 
 ```bash
 # List all profiles with descriptions
-python3 scrynet.py hybrid . ./scanner --list-profiles
+python3 agentsmith.py hybrid . ./scanner --list-profiles
 
 # Get help for hybrid mode
-python3 scrynet.py hybrid --help
+python3 agentsmith.py hybrid --help
 ```

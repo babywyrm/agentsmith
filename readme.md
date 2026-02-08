@@ -1,4 +1,4 @@
-# 🔍 SCRYNET - Unified Security Scanner
+# 🔍 Agent Smith - Unified Security Scanner
 
 > Do you hate reviews?  
 > Do you love CTFs?  
@@ -8,7 +8,7 @@
 
 ---
 
-**SCRYNET** is a comprehensive, multi-mode security scanning tool that combines fast static analysis with AI-powered contextual analysis. It supports multiple scanning modes optimized for different use cases, from quick CI/CD checks to deep security audits.
+**Agent Smith** is a comprehensive, multi-mode security scanning tool that combines fast static analysis with AI-powered contextual analysis. It supports multiple scanning modes optimized for different use cases, from quick CI/CD checks to deep security audits.
 
 ## ✨ What's New
 
@@ -18,7 +18,7 @@
 - **🌈 Rich UI**: Beautiful colors, spinners, and progress bars with real-time feedback
 - **📄 Multiple Export Formats**: JSON, CSV, Markdown, and HTML reports
 - **📍 Precise Location Tracking**: File paths and line numbers in all outputs
-- **🔄 Unified CLI**: Single entry point (`scrynet.py`) for all modes
+- **🔄 Unified CLI**: Single entry point (`agentsmith.py`) for all modes
 
 ## 🚀 Features
 
@@ -43,11 +43,11 @@
 ### 1. Build the Go Scanner
 
 ```bash
-git clone https://github.com/babywyrm/scrynet.git
+git clone https://github.com/babywyrm/agentsmith.git
 cd gowasp
 
 # Build the scanner binary
-go build -o scanner scrynet.go
+go build -o scanner agentsmith.go
 ```
 
 ### 2. Set up Python Environment
@@ -62,15 +62,15 @@ export CLAUDE_API_KEY="sk-ant-api03-..."
 
 ## 📖 Usage
 
-SCRYNET provides a unified entry point with multiple scanning modes:
+Agent Smith provides a unified entry point with multiple scanning modes:
 
 ### Unified Entry Point
 
-**`scrynet.py` is the main entry point for all SCRYNET operations.**
+**`agentsmith.py` is the main entry point for all Agent Smith operations.**
 
 ```bash
 cd gowasp
-python3 scrynet.py <mode> [options]
+python3 agentsmith.py <mode> [options]
 ```
 
 ### Available Modes
@@ -80,7 +80,7 @@ python3 scrynet.py <mode> [options]
 Fast static analysis using only the Go scanner - perfect for CI/CD:
 
 ```bash
-python3 scrynet.py static /path/to/repo --severity HIGH --output json
+python3 agentsmith.py static /path/to/repo --severity HIGH --output json
 ```
 
 **Features:**
@@ -102,7 +102,7 @@ python3 scrynet.py static /path/to/repo --severity HIGH --output json
 Comprehensive AI analysis with multi-stage pipeline:
 
 ```bash
-python3 scrynet.py analyze /path/to/repo "find security vulnerabilities" \
+python3 agentsmith.py analyze /path/to/repo "find security vulnerabilities" \
   --generate-payloads \
   --top-n 10 \
   --enable-review-state
@@ -131,7 +131,7 @@ python3 scrynet.py analyze /path/to/repo "find security vulnerabilities" \
 Optimized for Capture The Flag challenges:
 
 ```bash
-python3 scrynet.py ctf /path/to/ctf "find all vulnerabilities" \
+python3 agentsmith.py ctf /path/to/ctf "find all vulnerabilities" \
   --generate-payloads \
   --top-n 10
 ```
@@ -194,10 +194,10 @@ python3 orchestrator.py /path/to/repo ./scanner \
 
 ```bash
 # Fast static scan
-python3 scrynet.py static . --severity HIGH
+python3 agentsmith.py static . --severity HIGH
 
 # Comprehensive AI analysis
-python3 scrynet.py analyze . "find security vulnerabilities" \
+python3 agentsmith.py analyze . "find security vulnerabilities" \
   --top-n 5 \
   --generate-payloads
 ```
@@ -205,7 +205,7 @@ python3 scrynet.py analyze . "find security vulnerabilities" \
 ### CTF Challenge Analysis
 
 ```bash
-python3 scrynet.py ctf ./ctf-challenge \
+python3 agentsmith.py ctf ./ctf-challenge \
   "find all exploitable vulnerabilities" \
   --ctf-mode \
   --generate-payloads \
@@ -217,13 +217,13 @@ python3 scrynet.py ctf ./ctf-challenge \
 
 ```bash
 # List available reviews
-python3 scrynet.py analyze . --list-reviews
+python3 agentsmith.py analyze . --list-reviews
 
 # Resume last matching review
-python3 scrynet.py analyze /path/to/repo "question" --resume-last
+python3 agentsmith.py analyze /path/to/repo "question" --resume-last
 
 # Resume by ID
-python3 scrynet.py analyze /path/to/repo --resume-review abc123def456
+python3 agentsmith.py analyze /path/to/repo --resume-review abc123def456
 ```
 
 ### Hybrid Analysis (Recommended)
@@ -267,12 +267,12 @@ python3 orchestrator.py /path/to/repo ./scanner \
 
 ```
 gowasp/
-├── scrynet.py              # ⭐ MAIN ENTRY POINT - Use this!
+├── agentsmith.py              # ⭐ MAIN ENTRY POINT - Use this!
 ├── smart_analyzer.py       # AI-powered analyzer
 ├── ctf_analyzer.py         # CTF-focused analyzer
 ├── orchestrator.py          # Hybrid static + AI orchestrator
 ├── scanner                 # Go scanner binary
-├── scrynet.go              # Go scanner source
+├── agentsmith.go              # Go scanner source
 ├── rules/                  # Security rule sets
 │   ├── rules_core.json
 │   ├── rules_secrets.json
@@ -281,7 +281,7 @@ gowasp/
 │   ├── common.py           # Utilities
 │   ├── models.py           # Data models
 │   ├── output_manager.py   # Output formatting
-│   ├── scrynet_context.py # Caching & review state
+│   ├── agentsmith_context.py # Caching & review state
 │   ├── prompts.py          # Prompt factories
 │   └── ctf_prompts.py      # CTF prompts
 ├── prompts/                # Text-based prompt templates
@@ -301,17 +301,17 @@ gowasp/
 
 ### Review State Management
 
-SCRYNET can save and resume analysis sessions:
+Agent Smith can save and resume analysis sessions:
 
 ```bash
 # Start with state tracking
-python3 scrynet.py analyze /path/to/repo "question" --enable-review-state
+python3 agentsmith.py analyze /path/to/repo "question" --enable-review-state
 
 # Resume last review
-python3 scrynet.py analyze /path/to/repo "question" --resume-last
+python3 agentsmith.py analyze /path/to/repo "question" --resume-last
 
 # List all reviews
-python3 scrynet.py analyze . --list-reviews
+python3 agentsmith.py analyze . --list-reviews
 ```
 
 **Features:**
@@ -326,18 +326,18 @@ Caching speeds up repeated runs:
 
 ```bash
 # View cache stats
-python3 scrynet.py analyze . --cache-info
+python3 agentsmith.py analyze . --cache-info
 
 # Clear cache
-python3 scrynet.py analyze . --cache-clear
+python3 agentsmith.py analyze . --cache-clear
 
 # Prune old entries
-python3 scrynet.py analyze . --cache-prune 30
+python3 agentsmith.py analyze . --cache-prune 30
 ```
 
-Cache location: `.scrynet_cache/`
-- Reviews: `.scrynet_cache/reviews/`
-- API Cache: `.scrynet_cache/api_cache/` (namespaced by mode)
+Cache location: `.agentsmith_cache/`
+- Reviews: `.agentsmith_cache/reviews/`
+- API Cache: `.agentsmith_cache/api_cache/` (namespaced by mode)
 
 ## 💰 Cost Tracking
 
@@ -389,10 +389,10 @@ API Usage Summary
 
 ```bash
 # Standard help
-python3 scrynet.py <mode> --help
+python3 agentsmith.py <mode> --help
 
 # Comprehensive examples (analyze mode)
-python3 scrynet.py analyze --help-examples
+python3 agentsmith.py analyze --help-examples
 ```
 
 ### Direct Script Access
@@ -400,23 +400,23 @@ python3 scrynet.py analyze --help-examples
 You can also run scripts directly (advanced usage):
 
 ```bash
-# AI analyzer (called by scrynet.py analyze)
+# AI analyzer (called by agentsmith.py analyze)
 python3 smart_analyzer.py /path/to/repo "question"
 
-# CTF analyzer (called by scrynet.py ctf)
+# CTF analyzer (called by agentsmith.py ctf)
 python3 ctf_analyzer.py /path/to/ctf "question"
 
 # Hybrid orchestrator (use directly for all features)
 python3 orchestrator.py /path/to/repo ./scanner --profile owasp
 ```
 
-**Note:** For most users, `scrynet.py` is the recommended entry point.
+**Note:** For most users, `agentsmith.py` is the recommended entry point.
 
 ## 🏗️ Architecture
 
-SCRYNET uses a modular architecture:
+Agent Smith uses a modular architecture:
 
-- **Entry Point**: `scrynet.py` - Unified CLI dispatcher
+- **Entry Point**: `agentsmith.py` - Unified CLI dispatcher
 - **Analyzers**: `smart_analyzer.py`, `ctf_analyzer.py` - AI-powered analysis
 - **Orchestrator**: `orchestrator.py` - Hybrid static + AI
 - **Library**: `lib/` - Shared modules (common, models, output, context, prompts)
@@ -426,13 +426,13 @@ SCRYNET uses a modular architecture:
 
 ### Never Commit These Files
 
-SCRYNET outputs may contain sensitive information. The following are automatically gitignored:
+Agent Smith outputs may contain sensitive information. The following are automatically gitignored:
 
 - `output/` - All analysis results
 - `test-reports/`, `security-reports/`, `*-reports/` - Custom report directories
 - `**/payloads/`, `**/annotations/` - Generated payloads and annotations
 - `**/*_findings.*` - All finding reports (JSON, CSV, MD, HTML)
-- `.scrynet_cache/` - API cache and review state
+- `.agentsmith_cache/` - API cache and review state
 - `.env`, `*.key`, `*secret*` - Configuration and secrets
 
 ### API Key Security
@@ -465,7 +465,7 @@ git status --porcelain | grep -E "(output|report|findings)" || echo "✓ No outp
 
 **Fast static scan (no API key needed):**
 ```bash
-python3 scrynet.py static . --severity HIGH
+python3 agentsmith.py static . --severity HIGH
 ```
 
 **Comprehensive AI analysis (requires API key):**
@@ -484,6 +484,6 @@ python3 orchestrator.py . ./scanner \
 
 **Get help:**
 ```bash
-python3 scrynet.py --help
+python3 agentsmith.py --help
 python3 orchestrator.py --help
 ```

@@ -1,4 +1,4 @@
-# Advanced SCRYNET Examples
+# Advanced Agent Smith Examples
 
 Comprehensive examples demonstrating multi-profile scans, deduplication, and advanced workflows.
 
@@ -13,7 +13,7 @@ Deduplication only runs if you explicitly enable it with the `--deduplicate` fla
 **Scenario**: Comprehensive security audit with compliance checking
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,soc2,compliance \
   --prioritize \
   --prioritize-top 20 \
@@ -49,7 +49,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 **Scenario**: CTF challenge analysis with code quality review
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile ctf,code_review \
   --prioritize \
   --prioritize-top 15 \
@@ -83,7 +83,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 **Scenario**: Complete compliance audit (SOC2 + PCI + General)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile soc2,pci,compliance \
   --prioritize \
   --prioritize-top 25 \
@@ -117,7 +117,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 **Scenario**: Modern security practices + OWASP Top 10
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile modern,owasp \
   --prioritize \
   --prioritize-top 18 \
@@ -145,7 +145,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 **Scenario**: Run all profiles for maximum vulnerability coverage
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf,code_review,modern,soc2,pci,compliance \
   --prioritize \
   --prioritize-top 30 \
@@ -180,7 +180,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **1. Keep Highest Severity (Default)**
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-strategy keep_highest_severity \
@@ -193,7 +193,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **2. Keep First**
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-strategy keep_first \
@@ -206,7 +206,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **3. Merge**
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-strategy merge \
@@ -222,7 +222,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 ### Strict Deduplication (High Threshold)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-threshold 0.9 \
@@ -236,7 +236,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 ### Aggressive Deduplication (Low Threshold)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-threshold 0.5 \
@@ -250,7 +250,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 ### Balanced Deduplication (Default)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --dedupe-threshold 0.7 \
@@ -267,7 +267,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 1**: Quick scan with prioritization
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 10 \
@@ -279,7 +279,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 2**: Deep dive on prioritized files with multiple profiles
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf,code_review \
   --deduplicate \
   --dedupe-strategy merge \
@@ -297,7 +297,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 1**: Compliance scan
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile soc2,pci,compliance \
   --prioritize \
   --prioritize-top 20 \
@@ -311,7 +311,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 2**: Security validation
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,modern \
   --prioritize \
   --prioritize-top 15 \
@@ -329,7 +329,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 1**: Quick exploitation scan
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile ctf \
   --prioritize \
   --prioritize-top 15 \
@@ -343,7 +343,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 
 **Step 2**: Comprehensive analysis with deduplication
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile ctf,owasp \
   --deduplicate \
   --dedupe-strategy merge \
@@ -410,7 +410,7 @@ ls -lh output/*/combined_findings.*
 
 **Small repo (10 files)**:
 ```bash
-python3 scrynet.py hybrid ./small-repo ./scanner \
+python3 agentsmith.py hybrid ./small-repo ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --prioritize-top 5 \
@@ -419,7 +419,7 @@ python3 scrynet.py hybrid ./small-repo ./scanner \
 
 **Medium repo (50 files)**:
 ```bash
-python3 scrynet.py hybrid ./medium-repo ./scanner \
+python3 agentsmith.py hybrid ./medium-repo ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --prioritize-top 15 \
@@ -428,7 +428,7 @@ python3 scrynet.py hybrid ./medium-repo ./scanner \
 
 **Large repo (200+ files)**:
 ```bash
-python3 scrynet.py hybrid ./large-repo ./scanner \
+python3 agentsmith.py hybrid ./large-repo ./scanner \
   --profile owasp,ctf \
   --deduplicate \
   --prioritize-top 30 \
@@ -442,7 +442,7 @@ python3 scrynet.py hybrid ./large-repo ./scanner \
 ### Single Profile (Deduplication Not Needed)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp \
   --deduplicate \
   --prioritize --prioritize-top 10 \
@@ -455,7 +455,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 ### No Deduplication (Baseline)
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf \
   --prioritize --prioritize-top 10 \
   --verbose
@@ -467,7 +467,7 @@ python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
 ### Maximum Profiles
 
 ```bash
-python3 scrynet.py hybrid ./test_targets/DVWA ./scanner \
+python3 agentsmith.py hybrid ./test_targets/DVWA ./scanner \
   --profile owasp,ctf,code_review,modern,soc2,pci,compliance \
   --deduplicate \
   --dedupe-threshold 0.6 \

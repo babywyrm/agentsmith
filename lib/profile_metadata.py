@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Profile metadata definitions for SCRYNET AI analysis profiles.
+Profile metadata definitions for Agent Smith AI analysis profiles.
 
 Each profile includes:
 - Description: What the profile focuses on

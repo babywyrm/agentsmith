@@ -1,7 +1,7 @@
 """
 Tests for review state and cache management.
 
-Tests the scrynet_context module's review state lifecycle,
+Tests the agentsmith_context module's review state lifecycle,
 cache operations, and persistence features.
 """
 
@@ -16,7 +16,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.scrynet_context import ReviewContextManager, ReviewState, CostTracker, CachedResponse
+from lib.agentsmith_context import ReviewContextManager, ReviewState, CostTracker, CachedResponse
 
 
 class TestReviewStateLifecycle(unittest.TestCase):
@@ -39,7 +39,7 @@ class TestReviewStateLifecycle(unittest.TestCase):
     
     def test_create_review_context_manager(self):
         """Test creating a ReviewContextManager."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         self.assertIsNotNone(ctx)
         self.assertIsInstance(ctx, ReviewContextManager)
@@ -47,7 +47,7 @@ class TestReviewStateLifecycle(unittest.TestCase):
     
     def test_create_review_state(self):
         """Test creating a new review state."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         review = ctx.create_review(
             repo_path=str(self.test_repo),
@@ -61,7 +61,7 @@ class TestReviewStateLifecycle(unittest.TestCase):
     
     def test_review_id_generation(self):
         """Test that review IDs are unique."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         review1 = ctx.create_review(
             repo_path=str(self.test_repo),
@@ -79,7 +79,7 @@ class TestReviewStateLifecycle(unittest.TestCase):
     
     def test_review_state_saves_metadata(self):
         """Test that review state saves basic metadata."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         review = ctx.create_review(
             repo_path=str(self.test_repo),
@@ -108,7 +108,7 @@ class TestReviewStateCheckpoints(unittest.TestCase):
     
     def test_checkpoint_structure(self):
         """Test that checkpoints have expected structure."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         review = ctx.create_review(
             repo_path=str(self.test_repo),
@@ -121,7 +121,7 @@ class TestReviewStateCheckpoints(unittest.TestCase):
     
     def test_review_state_persistence(self):
         """Test that review state can be persisted."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         review = ctx.create_review(
             repo_path=str(self.test_repo),
@@ -149,7 +149,7 @@ class TestCacheManagement(unittest.TestCase):
     
     def test_cache_initialization(self):
         """Test that cache is initialized properly."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         # Cache should be available
         self.assertTrue(hasattr(ctx, 'use_cache'))
@@ -157,7 +157,7 @@ class TestCacheManagement(unittest.TestCase):
     
     def test_cache_key_generation(self):
         """Test that cache keys are generated consistently."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         # Same inputs should generate same keys
         if hasattr(ctx, '_make_cache_key'):
@@ -171,7 +171,7 @@ class TestCacheManagement(unittest.TestCase):
     
     def test_cache_dir_creation(self):
         """Test that cache directory is created."""
-        cache_path = self.test_dir / ".scrynet_cache"
+        cache_path = self.test_dir / ".agentsmith_cache"
         ctx = ReviewContextManager(cache_dir=cache_path)
         
         # Cache dir should exist or be creatable
@@ -196,7 +196,7 @@ class TestCacheHitSavingsCost(unittest.TestCase):
     
     def test_cache_hit_excludes_from_token_count(self):
         """Test that cache hits don't count toward token usage."""
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         # CostTracker should handle cached responses differently
         tracker = CostTracker()
@@ -246,7 +246,7 @@ class TestDirectoryFingerprinting(unittest.TestCase):
         (self.test_repo / "file1.py").write_text("content1")
         (self.test_repo / "file2.py").write_text("content2")
         
-        ctx = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         # Context should have fingerprinting capability
         self.assertTrue(hasattr(ctx, 'compute_dir_fingerprint'))
@@ -255,8 +255,8 @@ class TestDirectoryFingerprinting(unittest.TestCase):
         """Test that same directory produces consistent results."""
         (self.test_repo / "file1.py").write_text("original")
         
-        ctx1 = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
-        ctx2 = ReviewContextManager(cache_dir=self.test_dir / ".scrynet_cache")
+        ctx1 = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
+        ctx2 = ReviewContextManager(cache_dir=self.test_dir / ".agentsmith_cache")
         
         # Both contexts should be created successfully
         self.assertIsNotNone(ctx1)

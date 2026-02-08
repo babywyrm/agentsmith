@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example usage of the SCRYNET Context Library.
+Example usage of the Agent Smith Context Library.
 
 This demonstrates how to use ReviewContextManager for:
 - Creating and resuming reviews
@@ -12,11 +12,11 @@ This demonstrates how to use ReviewContextManager for:
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from lib.scrynet_context import ReviewContextManager
+from lib.agentsmith_context import ReviewContextManager
 
 # Initialize the context manager
 ctx = ReviewContextManager(
-    cache_dir=".scrynet_cache",
+    cache_dir=".agentsmith_cache",
     use_cache=True,
     enable_cost_tracking=True
 )

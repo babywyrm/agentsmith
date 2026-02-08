@@ -1,4 +1,4 @@
-# SCRYNET Changelog
+# Agent Smith Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -41,7 +41,7 @@ All notable changes to this project will be documented in this file.
 ### Important - Main Entry Point
 - **orchestrator.py** is now the recommended entry point for hybrid mode
 - Supports all new features: presets, smart defaults, quick wins, enhanced prompts
-- `scrynet.py` remains available as unified dispatcher for all modes
+- `agentsmith.py` remains available as unified dispatcher for all modes
 - All documentation updated to use `orchestrator.py` for hybrid scans
 
 ### Added - Phase 3: Quick Wins & Enhanced Display
@@ -105,7 +105,7 @@ All notable changes to this project will be documented in this file.
   - `get_line_number()` - Consistent line number handling
   - `handle_api_error()` - Smart API error handling with retry logic
   - `safe_file_read()` - Safe file operations with size checks
-  - Custom exceptions: `APIError`, `FileAnalysisError`, `ScrynetError`
+  - Custom exceptions: `APIError`, `FileAnalysisError`, `AgentSmithError`
 
 - **Test Suite Improvements**
   - 48 unit tests covering normalization and error handling

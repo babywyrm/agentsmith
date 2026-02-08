@@ -1,5 +1,5 @@
 #!/bin/bash
-# SCRYNET Setup Script
+# Agent Smith Setup Script
 # Creates virtual environment and installs dependencies
 
 set -e  # Exit on error
@@ -7,7 +7,7 @@ set -e  # Exit on error
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🔍 SCRYNET Setup"
+echo "🔍 Agent Smith Setup"
 echo "================"
 echo ""
 

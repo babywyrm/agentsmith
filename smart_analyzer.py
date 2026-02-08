@@ -57,7 +57,7 @@ except ImportError:
 
 # Unified context management library
 try:
-    from lib.scrynet_context import ReviewContextManager
+    from lib.agentsmith_context import ReviewContextManager
     CONTEXT_AVAILABLE = True
 except ImportError:
     CONTEXT_AVAILABLE = False
@@ -72,7 +72,7 @@ DEFAULT_MAX_FILES: Final = 400
 
 
 # Data models are now in models.py
-# CostTracker is now in scrynet_context.py
+# CostTracker is now in agentsmith_context.py
 # Deprecated CacheManager, ConversationLog, and helper functions removed
 # All utilities are now in common.py
 
@@ -664,7 +664,7 @@ For more examples, run: python3 smart_analyzer.py --help-examples
     )
     p.add_argument("repo_path", help="Path to the repository to analyze")
     p.add_argument("question", nargs="?", help="Analysis question")
-    p.add_argument("--cache-dir", default=".scrynet_cache", help="Directory for conversation cache")
+    p.add_argument("--cache-dir", default=".agentsmith_cache", help="Directory for conversation cache")
     p.add_argument("--no-cache", action="store_true", help="Disable cache (always hit API)")
     p.add_argument(
         "--save-conversations", action="store_true", help="Save full session log as JSON"
@@ -1038,7 +1038,7 @@ def main() -> None:
         context = ReviewContextManager(args.cache_dir, use_cache=not args.no_cache, enable_cost_tracking=True)
     else:
         # Fallback: create a minimal context for backward compatibility
-        console.print("[yellow]Warning: scrynet_context not available, some features disabled[/yellow]")
+        console.print("[yellow]Warning: agentsmith_context not available, some features disabled[/yellow]")
     
     resolved_model = resolve_model(args.model)
     analyzer = SmartAnalyzer(
@@ -1432,7 +1432,7 @@ def main() -> None:
     if review_state and context:
         context.mark_completed(review_state.review_id)
         console.print(f"\n[green]✓ Review state saved: {review_state.review_id}[/green]")
-        console.print(f"[dim]Context file: .scrynet_cache/reviews/_{review_state.review_id}_context.md[/dim]")
+        console.print(f"[dim]Context file: .agentsmith_cache/reviews/_{review_state.review_id}_context.md[/dim]")
     
     # Display cost summary
     # Get cost summary from context manager

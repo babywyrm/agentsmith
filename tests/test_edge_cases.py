@@ -1,7 +1,7 @@
 """
 Tests for edge cases and error handling.
 
-Tests SCRYNET's behavior with unusual inputs, boundary conditions,
+Tests Agent Smith's behavior with unusual inputs, boundary conditions,
 and error scenarios to ensure robustness.
 """
 

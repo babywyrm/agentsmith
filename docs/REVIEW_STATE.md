@@ -1,6 +1,6 @@
 # Review State and Cache
 
-> **Note**: This documentation describes review state features. The implementation is in `lib/scrynet_context.py` and is used by `smart_analyzer.py` and `orchestrator.py`.
+> **Note**: This documentation describes review state features. The implementation is in `lib/agentsmith_context.py` and is used by `smart_analyzer.py` and `orchestrator.py`.
 
 This guide explains how to preserve context across sessions, resume prior reviews, and manage the cache system.
 
@@ -20,8 +20,8 @@ This guide explains how to preserve context across sessions, resume prior review
 # Using smart_analyzer.py
 python3 smart_analyzer.py /path/to/repo "your question" --enable-review-state
 
-# Or using scrynet.py analyze mode
-python3 scrynet.py analyze /path/to/repo "your question" --enable-review-state
+# Or using agentsmith.py analyze mode
+python3 agentsmith.py analyze /path/to/repo "your question" --enable-review-state
 ```
 
 2) Resume a prior review
@@ -49,7 +49,7 @@ python3 smart_analyzer.py . --review-status <review_id>
 4) Open the saved context in your editor
 
 ```
-.scrynet_cache/reviews/_<review_id>_context.md
+.agentsmith_cache/reviews/_<review_id>_context.md
 ```
 Use this as a prompt anchor in Cursor/Claude to maintain continuity.
 
@@ -68,7 +68,7 @@ Use this as a prompt anchor in Cursor/Claude to maintain continuity.
 - Deep dive: findings collected and files analyzed
 - Synthesis: final report string and lengths
 
-These are visible in the status and in the context file under `.scrynet_cache/reviews/`.
+These are visible in the status and in the context file under `.agentsmith_cache/reviews/`.
 
 ---
 
@@ -78,8 +78,8 @@ These are visible in the status and in the context file under `.scrynet_cache/re
 - Cache = performance for repeated prompts: stores API responses, auto-reused when inputs match.
 
 They are separate but complementary:
-- Review state files are under: `.scrynet_cache/reviews/`
-- Cache entries are under namespaced folders: `.scrynet_cache/<repo_fingerprint>/<model>/`
+- Review state files are under: `.agentsmith_cache/reviews/`
+- Cache entries are under namespaced folders: `.agentsmith_cache/<repo_fingerprint>/<model>/`
 
 ---
 
@@ -117,7 +117,7 @@ python3 smart_analyzer.py . --cache-export cache_manifest.json
 ```bash
 python3 smart_analyzer.py /path/to/repo "security quick pass" --enable-review-state
 ```
-Expect: analysis runs; Review ID printed; `.scrynet_cache/` created.
+Expect: analysis runs; Review ID printed; `.agentsmith_cache/` created.
 
 2) Verify review exists
 ```bash

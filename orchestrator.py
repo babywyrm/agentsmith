@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    """Coordinates scrynet static scan, Claude AI analysis, and threat modeling."""
+    """Coordinates Agent Smith static scan, Claude AI analysis, and threat modeling."""
 
     def __init__(self, repo_path: Path, scanner_bin: Path, parallel: bool, debug: bool,
                  severity: Optional[str], profiles: str, static_rules: Optional[str],
@@ -304,7 +304,7 @@ class Orchestrator:
         return json_text
 
     def run_static_scanner(self) -> List[Finding]:
-        """Invoke scrynet scanner binary and parse JSON results."""
+        """Invoke Agent Smith scanner binary and parse JSON results."""
         self.console.print("\n[bold cyan]⚡ Stage 0: Static Scanner[/bold cyan]")
         self.console.print("[dim]Running fast static analysis...[/dim]")
         
@@ -320,10 +320,10 @@ class Orchestrator:
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             except subprocess.TimeoutExpired:
-                self.console.print("[red]scrynet scanner timed out after 5 minutes[/red]")
+                self.console.print("[red]Agent Smith scanner timed out after 5 minutes[/red]")
                 return []
             except subprocess.CalledProcessError as e:
-                self.console.print(f"[red]scrynet scanner failed: {e.stderr}[/red]")
+                self.console.print(f"[red]Agent Smith scanner failed: {e.stderr}[/red]")
                 return []
             except Exception as e:
                 self.console.print(f"[red]Unexpected error running scanner: {e}[/red]")
@@ -829,7 +829,7 @@ class Orchestrator:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCRYNET Security Report</title>
+    <title>Agent Smith Security Report</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
@@ -855,7 +855,7 @@ class Orchestrator:
 </head>
 <body>
     <div class="container">
-        <h1>🔍 SCRYNET Security Report</h1>
+        <h1>🕶️ Agent Smith Security Report</h1>
         <p><strong>Repository:</strong> {self.repo_path}</p>
         <p><strong>Generated:</strong> {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
         
@@ -1357,7 +1357,7 @@ class Orchestrator:
         
         static_findings = self.run_static_scanner()
         for finding in static_findings:
-            finding['source'] = 'scrynet'
+            finding['source'] = 'agentsmith'
         static_output_file = self.output_path / "static_findings.json"
         with open(static_output_file, "w", encoding="utf-8") as f:
             json.dump(static_findings, f, indent=2)
@@ -1561,7 +1561,7 @@ class Orchestrator:
                 profiles = [p.strip().replace('claude-', '') for p in source.split(',')]
                 source_display = ' + '.join(profiles)
             else:
-                source_display = source.replace('claude-', '').replace('scrynet', 'Static Scanner')
+                source_display = source.replace('claude-', '').replace('agentsmith', 'Static Scanner')
             summary_table.add_row(f"  • {source_display}:", str(count))
         
         # Breakdown by severity
@@ -1691,7 +1691,7 @@ def _print_profile_list(console: Console) -> None:
             
             console.print(f"\n  [bold]Examples:[/bold]")
             for example in profile.examples:
-                console.print(f"    [dim]$[/dim] python3 scrynet.py hybrid ./repo ./scanner {example}")
+                console.print(f"    [dim]$[/dim] python3 agentsmith.py hybrid ./repo ./scanner {example}")
             console.print()
     
     console.print("\n[bold]Usage Tips:[/bold]")
@@ -1704,18 +1704,18 @@ def _print_profile_list(console: Console) -> None:
 def main() -> None:
     """CLI parser and entrypoint."""
     parser = argparse.ArgumentParser(
-        description="Orchestrator for scrynet and Claude scanners.",
+        description="Orchestrator for Agent Smith and Claude scanners.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("repo_path", type=Path, nargs='?', help="Path to repo to scan.")
-    parser.add_argument("scanner_bin", type=Path, nargs='?', help="Path to scrynet scanner binary.")
+    parser.add_argument("scanner_bin", type=Path, nargs='?', help="Path to Agent Smith scanner binary.")
     parser.add_argument("--preset", type=str.lower,
                         choices=['quick', 'ctf', 'ctf-fast', 'security-audit', 'pentest', 'compliance'],
                         help="Use a preset configuration (overrides individual flags). Available: quick, ctf, ctf-fast, security-audit, pentest, compliance. Use --list-presets to see details.")
     parser.add_argument("--profile", type=str.lower, default="owasp",
                         help="Comma-separated list of AI profiles. Available: owasp, ctf, code_review, modern, soc2, pci, compliance, performance, attacker (e.g., 'owasp,ctf' or 'soc2,compliance').")
     parser.add_argument("--static-rules", type=str,
-                        help="Comma-separated paths to static rule files for scrynet.")
+                        help="Comma-separated paths to static rule files for Agent Smith.")
     parser.add_argument("--severity", type=str.upper,
                         choices=[s.name for s in Severity],
                         help="Minimum severity to report.")

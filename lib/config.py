@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Configuration presets and smart defaults for SCRYNET.
+Configuration presets and smart defaults for Agent Smith.
 
 Provides preset configurations for common use cases and smart defaults
 that adapt based on scan context.

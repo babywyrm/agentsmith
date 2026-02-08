@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Data models for SCRYNET Smart Analyzer.
+Data models for Agent Smith Smart Analyzer.
 
 Centralized data structures used throughout the analysis pipeline.
 """

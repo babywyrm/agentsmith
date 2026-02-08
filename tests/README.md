@@ -1,6 +1,6 @@
-# SCRYNET Test Suite
+# Agent Smith Test Suite
 
-Python test suite for SCRYNET core functionality.
+Python test suite for Agent Smith core functionality.
 
 ## Running Tests
 

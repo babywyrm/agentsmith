@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-SCRYNET Model Registry
+Agent Smith Model Registry
 
 Single source of truth for all Claude model definitions, pricing, aliases,
-and selection logic. Every part of SCRYNET that references a model should
+and selection logic. Every part of Agent Smith that references a model should
 import from here instead of hardcoding model strings.
 
 Usage:

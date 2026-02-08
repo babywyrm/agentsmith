@@ -1,4 +1,4 @@
-# SCRYNET Use Cases - Simple to Complex
+# Agent Smith Use Cases - Simple to Complex
 
 Practical examples for common security analysis scenarios.
 
@@ -10,7 +10,7 @@ Practical examples for common security analysis scenarios.
 
 ```bash
 # Static scan (fast, free, no API key needed)
-python3 scrynet.py static ./myapp --severity HIGH
+python3 agentsmith.py static ./myapp --severity HIGH
 
 # Takes: ~5 seconds
 # Cost: Free
@@ -36,7 +36,7 @@ python3 orchestrator.py --list-profiles
 python3 orchestrator.py ./myapp --detect-tech-stack
 ```
 
-**When to use:** First time using SCRYNET, exploring a new codebase
+**When to use:** First time using Agent Smith, exploring a new codebase
 
 ---
 
@@ -388,13 +388,13 @@ python3 orchestrator.py ./target ./scanner \
 
 ```bash
 # First run (use review state)
-python3 scrynet.py analyze ./app "find vulnerabilities" --enable-review-state
+python3 agentsmith.py analyze ./app "find vulnerabilities" --enable-review-state
 
 # Later, resume
-python3 scrynet.py analyze ./app --resume-last
+python3 agentsmith.py analyze ./app --resume-last
 
 # Or resume specific review
-python3 scrynet.py analyze ./app --resume-review abc123
+python3 agentsmith.py analyze ./app --resume-review abc123
 ```
 
 **When to use:** Large codebases, interrupted scans, iterative analysis
@@ -463,7 +463,7 @@ python3 scrynet.py analyze ./app --resume-review abc123
 ### Daily Developer Workflow
 ```bash
 # Morning: Quick check before standup
-python3 scrynet.py static . --severity HIGH
+python3 agentsmith.py static . --severity HIGH
 
 # Found issue: Deep dive
 python3 orchestrator.py ./problematic-module ./scanner --preset ctf-fast
