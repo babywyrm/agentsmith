@@ -45,11 +45,13 @@ output.log
 
 # Go modules
 /vendor/
-/go.sum
 
 # IDE/editor files
 .vscode/
 .idea/
+.cursor/
+# Keep MCP config for collaborators
+!.cursor/mcp.json
 *.swp
 *.swo
 *.swn
