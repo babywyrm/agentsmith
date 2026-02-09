@@ -1,11 +1,12 @@
 """
 MCP Tool Definitions and Handlers
 
-Six core tools that call into Agent Smith's scanning and analysis pipeline.
+Nine core tools that call into Agent Smith's scanning and analysis pipeline.
 """
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,11 @@ from mcp_server.config import (
     RULES_DIR,
     SCANNER_BIN,
 )
+
+# Maximum file size for single-file operations (1 MB)
+MAX_FILE_SIZE = 1_000_000
+# Maximum code context to send to AI (100 KB)
+MAX_CODE_CONTEXT = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +93,51 @@ def _find_output_dir(output_dir: str | None = None) -> Path:
         raise ValueError("No scan results found in output/. Run a scan first.")
 
     return dirs[0]
+
+
+def _validate_file_path(file_path: str) -> Path:
+    """Validate and resolve a single file path, preventing traversal attacks."""
+    if not file_path or len(file_path) > MAX_PATH_LENGTH:
+        raise ValueError(f"file_path must be 1-{MAX_PATH_LENGTH} characters")
+
+    resolved = Path(file_path).resolve()
+
+    if not resolved.is_file():
+        raise ValueError(f"Path does not exist or is not a file: {resolved}")
+
+    if resolved.stat().st_size > MAX_FILE_SIZE:
+        raise ValueError(
+            f"File too large ({resolved.stat().st_size} bytes). "
+            f"Maximum is {MAX_FILE_SIZE} bytes."
+        )
+
+    # Check against allowed base paths
+    allowed = any(
+        resolved == base or resolved.is_relative_to(base)
+        for base in ALLOWED_PATHS
+    )
+    if not allowed:
+        raise ValueError(
+            f"Path '{resolved}' is outside allowed directories. "
+            f"Set AGENTSMITH_ALLOWED_PATHS to expand access."
+        )
+
+    return resolved
+
+
+def _get_ai_client():
+    """Get an AI client, raising a clear error if credentials are missing."""
+    api_key = os.environ.get("CLAUDE_API_KEY")
+    bedrock = os.environ.get("AGENTSMITH_PROVIDER", "").lower() == "bedrock"
+
+    if not api_key and not bedrock:
+        raise ValueError(
+            "AI tools require CLAUDE_API_KEY or AGENTSMITH_PROVIDER=bedrock. "
+            "Set the appropriate environment variable."
+        )
+
+    from lib.ai_provider import create_client
+    return create_client()
 
 
 def _count_by_key(items: list[dict], key: str, top_n: int | None = None) -> dict[str, int]:
@@ -248,6 +299,96 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {},
+        },
+    },
+    {
+        "name": "scan_file",
+        "description": (
+            "Scan a single file for security vulnerabilities using Agent Smith's "
+            "static analysis rules. Fast and focused — ideal for checking the file "
+            "you're currently editing. No API key required."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["file_path"],
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to scan",
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                    "description": "Minimum severity to report (default: all)",
+                },
+            },
+        },
+    },
+    {
+        "name": "explain_finding",
+        "description": (
+            "Get a detailed AI-powered explanation of a security finding. "
+            "Provides attack scenarios, real-world impact, CWE details, and "
+            "educational context. Requires CLAUDE_API_KEY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["file_path", "description"],
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file containing the vulnerability",
+                },
+                "line_number": {
+                    "type": "integer",
+                    "description": "Line number of the vulnerability (optional but improves accuracy)",
+                    "minimum": 1,
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of the finding to explain (e.g., 'SQL injection in login query')",
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                    "description": "Severity of the finding",
+                },
+                "cwe": {
+                    "type": "string",
+                    "description": "CWE identifier if known (e.g., 'CWE-89')",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_fix",
+        "description": (
+            "Get an AI-generated code fix for a specific security vulnerability. "
+            "Returns before/after code, explanation, and a ready-to-apply patch. "
+            "Requires CLAUDE_API_KEY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["file_path", "description"],
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file containing the vulnerability",
+                },
+                "line_number": {
+                    "type": "integer",
+                    "description": "Line number of the vulnerability (optional but improves accuracy)",
+                    "minimum": 1,
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of the vulnerability to fix (e.g., 'SQL injection in user lookup')",
+                },
+                "recommendation": {
+                    "type": "string",
+                    "description": "Existing recommendation or fix guidance, if available",
+                },
+            },
         },
     },
 ]
@@ -541,6 +682,225 @@ async def handle_list_presets(arguments: dict[str, Any]) -> str:
     return json.dumps({"presets": result, "count": len(result)})
 
 
+async def handle_scan_file(arguments: dict[str, Any]) -> str:
+    """Scan a single file with the Go static scanner."""
+    file_path = _validate_file_path(arguments["file_path"])
+    severity = _validate_severity(arguments.get("severity"))
+
+    if not SCANNER_BIN.is_file():
+        return json.dumps({"error": "Scanner binary not found. Run ./setup.sh to build it."})
+
+    # The scanner works on directories, so we scan the parent and filter
+    cmd = [str(SCANNER_BIN), "--dir", str(file_path.parent), "--output", "json"]
+    if severity:
+        cmd.extend(["--severity", severity])
+
+    rule_files = sorted(RULES_DIR.glob("*.json")) if RULES_DIR.is_dir() else []
+    if rule_files:
+        cmd.extend(["--rules", ",".join(str(f) for f in rule_files)])
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        output = proc.stdout
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "Scan timed out after 2 minutes"})
+    except Exception as e:
+        return json.dumps({"error": f"Scanner failed: {e}"})
+
+    # Parse and filter to just our file
+    start = output.find("[")
+    end = output.rfind("]") + 1
+    if start < 0 or end <= start:
+        return json.dumps({"findings": [], "count": 0, "file": str(file_path)})
+
+    try:
+        all_findings = json.loads(output[start:end])
+    except json.JSONDecodeError:
+        return json.dumps({"error": "Failed to parse scanner output"})
+
+    # Filter findings to just the target file
+    file_name = file_path.name
+    file_str = str(file_path)
+    findings = [
+        f for f in all_findings
+        if f.get("file", "").endswith(file_name)
+        or file_str.endswith(f.get("file", "\x00"))
+    ]
+
+    return json.dumps({
+        "file": str(file_path),
+        "findings": findings[:MAX_OUTPUT_FINDINGS],
+        "count": len(findings),
+        "rules_loaded": len(rule_files),
+    })
+
+
+async def handle_explain_finding(arguments: dict[str, Any]) -> str:
+    """Get a detailed AI explanation of a security finding."""
+    file_path = _validate_file_path(arguments["file_path"])
+    description = arguments["description"].strip()
+    line_number = arguments.get("line_number")
+    severity = arguments.get("severity", "MEDIUM")
+    cwe = arguments.get("cwe", "")
+
+    if not description or len(description) > MAX_QUESTION_LENGTH:
+        raise ValueError(f"description must be 1-{MAX_QUESTION_LENGTH} characters")
+
+    # Read the file for context
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    if len(content) > MAX_CODE_CONTEXT:
+        # If file is too large, extract context around the line
+        if line_number:
+            lines = content.splitlines()
+            start = max(0, line_number - 30)
+            end = min(len(lines), line_number + 30)
+            content = "\n".join(lines[start:end])
+        else:
+            content = content[:MAX_CODE_CONTEXT]
+
+    # Build focused prompt
+    line_ctx = f"\n- Line: {line_number}" if line_number else ""
+    cwe_ctx = f"\n- CWE: {cwe}" if cwe else ""
+
+    prompt = f"""You are a Principal Application Security Engineer providing a detailed explanation of a security finding to a development team.
+
+FINDING:
+- File: {file_path.name}
+- Severity: {severity}{line_ctx}{cwe_ctx}
+- Description: {description}
+
+CODE CONTEXT:
+```
+{content}
+```
+
+Provide a thorough, educational explanation. Your entire response must be ONLY a JSON object:
+{{
+  "title": "Clear, specific title for this vulnerability",
+  "explanation": "2-3 paragraph explanation of what this vulnerability is and why it matters",
+  "attack_scenario": "Step-by-step description of how an attacker could exploit this",
+  "impact": "What damage could result from successful exploitation",
+  "cwe": "The most applicable CWE ID (e.g., CWE-89) with its name",
+  "owasp_category": "Relevant OWASP Top 10 category (e.g., A03:2021 Injection)",
+  "references": ["URL or reference 1", "URL or reference 2"],
+  "severity_justification": "Why this severity rating is appropriate"
+}}"""
+
+    client = _get_ai_client()
+    from lib.model_registry import get_default_model
+    model = get_default_model()
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        raw = response.content[0].text
+    except Exception as e:
+        return json.dumps({"error": f"AI analysis failed: {type(e).__name__}: {e}"})
+
+    from lib.common import parse_json_response
+    parsed = parse_json_response(raw)
+
+    if not parsed:
+        return json.dumps({
+            "error": "Failed to parse AI response",
+            "raw_response": raw[:2000],
+        })
+
+    # Include metadata
+    parsed["file"] = str(file_path)
+    parsed["line_number"] = line_number
+    parsed["model_used"] = model
+
+    return json.dumps(parsed, default=str)
+
+
+async def handle_get_fix(arguments: dict[str, Any]) -> str:
+    """Get an AI-generated code fix for a vulnerability."""
+    file_path = _validate_file_path(arguments["file_path"])
+    description = arguments["description"].strip()
+    line_number = arguments.get("line_number")
+    recommendation = arguments.get("recommendation", "")
+
+    if not description or len(description) > MAX_QUESTION_LENGTH:
+        raise ValueError(f"description must be 1-{MAX_QUESTION_LENGTH} characters")
+
+    # Read the file
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    if len(content) > MAX_CODE_CONTEXT:
+        if line_number:
+            lines = content.splitlines()
+            start = max(0, line_number - 40)
+            end = min(len(lines), line_number + 40)
+            content = "\n".join(lines[start:end])
+        else:
+            content = content[:MAX_CODE_CONTEXT]
+
+    line_ctx = f"\n- Vulnerable Line: {line_number}" if line_number else ""
+    rec_ctx = f"\n- Existing Recommendation: {recommendation}" if recommendation else ""
+
+    prompt = f"""You are a secure coding expert. Provide a precise, production-ready fix for this security vulnerability.
+
+VULNERABILITY:
+- File: {file_path.name}
+- Description: {description}{line_ctx}{rec_ctx}
+
+CODE:
+```
+{content}
+```
+
+INSTRUCTIONS:
+1. Identify the vulnerable code precisely
+2. Provide a corrected version that eliminates the vulnerability
+3. Ensure the fix maintains existing functionality
+4. Use secure coding best practices for this language/framework
+
+Your entire response must be ONLY a JSON object:
+{{
+  "vulnerable_code": "The exact vulnerable code snippet (5-15 lines)",
+  "fixed_code": "The corrected code snippet that replaces the vulnerable code",
+  "explanation": "Why this fix eliminates the vulnerability and how it works",
+  "changes_summary": "One-line summary of what changed",
+  "additional_recommendations": ["Any other hardening steps to consider"],
+  "test_suggestion": "How to verify the fix works and the vulnerability is gone"
+}}"""
+
+    client = _get_ai_client()
+    from lib.model_registry import get_default_model
+    model = get_default_model()
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,  # Low temp for precise code
+        )
+        raw = response.content[0].text
+    except Exception as e:
+        return json.dumps({"error": f"AI fix generation failed: {type(e).__name__}: {e}"})
+
+    from lib.common import parse_json_response
+    parsed = parse_json_response(raw)
+
+    if not parsed:
+        return json.dumps({
+            "error": "Failed to parse AI response",
+            "raw_response": raw[:2000],
+        })
+
+    # Include metadata
+    parsed["file"] = str(file_path)
+    parsed["line_number"] = line_number
+    parsed["model_used"] = model
+
+    return json.dumps(parsed, default=str)
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
@@ -552,4 +912,7 @@ TOOL_HANDLERS = {
     "summarize_results": handle_summarize_results,
     "list_findings": handle_list_findings,
     "list_presets": handle_list_presets,
+    "scan_file": handle_scan_file,
+    "explain_finding": handle_explain_finding,
+    "get_fix": handle_get_fix,
 }

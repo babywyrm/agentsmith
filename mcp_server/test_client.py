@@ -415,6 +415,42 @@ def _build_test_cases(repo_path, tool_filter, include_all, available_tools):
             lambda d: (isinstance(d.get("findings"), list), "findings returned"),
         ])
 
+    # --- scan_file ---
+    if repo_path:
+        # Find a PHP file in the test target for single-file scanning
+        test_files = list(Path(repo_path).rglob("*.php"))
+        if test_files:
+            test_file = str(test_files[0])
+            add("scan single file", "scan_file",
+                {"file_path": test_file}, [
+                lambda d: (isinstance(d.get("findings"), list), "findings returned"),
+                lambda d: (d.get("file", "").endswith(".php"), "correct file in response"),
+            ])
+
+            add("scan single file (CRITICAL)", "scan_file",
+                {"file_path": test_file, "severity": "CRITICAL"}, [
+                lambda d: (isinstance(d.get("findings"), list), "findings returned"),
+            ])
+
+    # --- explain_finding (only if --all, requires API key) ---
+    if include_all and repo_path:
+        test_files = list(Path(repo_path).rglob("*.php"))
+        if test_files:
+            add("explain a finding", "explain_finding",
+                {"file_path": str(test_files[0]),
+                 "description": "potential SQL injection in database query",
+                 "severity": "HIGH"}, [
+                lambda d: ("explanation" in d, "has explanation"),
+                lambda d: ("attack_scenario" in d, "has attack scenario"),
+            ])
+
+            add("get fix for finding", "get_fix",
+                {"file_path": str(test_files[0]),
+                 "description": "potential SQL injection in database query"}, [
+                lambda d: ("fixed_code" in d, "has fixed code"),
+                lambda d: ("explanation" in d, "has explanation"),
+            ])
+
     # --- Input validation / security tests ---
     add("reject invalid path", "scan_static",
         {"repo_path": "/nonexistent/fakepath"}, expect_error=True)
@@ -424,6 +460,12 @@ def _build_test_cases(repo_path, tool_filter, include_all, available_tools):
 
     add("reject missing repo_path", "detect_tech_stack",
         {"repo_path": ""}, expect_error=True)
+
+    add("reject invalid file path", "scan_file",
+        {"file_path": "/nonexistent/fakefile.py"}, expect_error=True)
+
+    add("reject file traversal attack", "scan_file",
+        {"file_path": "/etc/passwd"}, expect_error=True)
 
     # --- scan_hybrid (only if --all) ---
     # Uses tight defaults: prioritize top 5 files, quick preset to keep it fast
@@ -602,6 +644,48 @@ def _print_result_detail(tool_name: str, data: dict):
             for rule, cnt in top:
                 print(f"      {cnt:>5}x  {rule}")
 
+    elif tool_name == "scan_file":
+        count = data.get("count", 0)
+        fname = Path(data.get("file", "?")).name
+        print(f"    {c(f'{count} findings in {fname}', DIM)}")
+        findings = data.get("findings", [])
+        if findings:
+            sevs: dict[str, int] = {}
+            for f in findings:
+                s = f.get("severity", "?")
+                sevs[s] = sevs.get(s, 0) + 1
+            parts = []
+            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                if sev in sevs:
+                    clr = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN}.get(sev, DIM)
+                    parts.append(f"{c(sev, clr)}: {sevs[sev]}")
+            if parts:
+                print(f"    {c('Severity:', BOLD)}  {', '.join(parts)}")
+
+    elif tool_name == "explain_finding":
+        title = data.get("title", "?")
+        cwe = data.get("cwe", "")
+        owasp = data.get("owasp_category", "")
+        explanation = data.get("explanation", "")[:120]
+        print(f"    {c('Title:', BOLD)}       {title}")
+        if cwe:
+            print(f"    {c('CWE:', BOLD)}         {cwe}")
+        if owasp:
+            print(f"    {c('OWASP:', BOLD)}       {owasp}")
+        if explanation:
+            print(f"    {c('Explanation:', BOLD)}  {explanation}...")
+
+    elif tool_name == "get_fix":
+        summary = data.get("changes_summary", "?")
+        has_fix = bool(data.get("fixed_code"))
+        has_vuln = bool(data.get("vulnerable_code"))
+        test = data.get("test_suggestion", "")[:80]
+        print(f"    {c('Summary:', BOLD)}    {summary}")
+        print(f"    {c('Has fix:', BOLD)}    {'yes' if has_fix else 'no'}")
+        print(f"    {c('Has vuln:', BOLD)}   {'yes' if has_vuln else 'no'}")
+        if test:
+            print(f"    {c('Test:', BOLD)}       {test}...")
+
     elif tool_name == "scan_hybrid":
         status = data.get("status", "?")
         total = data.get("total_findings", "?")
@@ -637,7 +721,19 @@ async def mode_interact(url: str, repo_path: str | None = None):
 
     print(f"\n{c('Agent Smith MCP Interactive Client', BOLD)}")
     print(f"{'=' * 60}")
-    print(f"  Server: {c(url, CYAN)}")
+    print(f"  Server:        {c(url, CYAN)}")
+    if repo_path:
+        print(f"  Default repo:  {c(repo_path, DIM)}")
+
+    # Show allowed paths so users know what they can scan
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from mcp_server.config import ALLOWED_PATHS
+        paths = [str(p) for p in ALLOWED_PATHS]
+        print(f"  Allowed paths: {c(', '.join(paths), DIM)}")
+        print(f"  {c('(set AGENTSMITH_ALLOWED_PATHS to expand)', DIM)}")
+    except Exception:
+        pass
     print()
 
     try:
@@ -653,7 +749,7 @@ async def mode_interact(url: str, repo_path: str | None = None):
         tools = {t.name: t for t in tools_result.tools}
 
         print(f"{c('Connected', GREEN)} - {len(tools)} tools available")
-        print(f"Type a tool name to call it, 'help' for commands, 'quit' to exit.")
+        print(f"Type {c('tools', CYAN)} to list them, {c('help', CYAN)} for commands, {c('quit', CYAN)} to exit.")
         print()
 
         last_result = None
@@ -673,19 +769,31 @@ async def mode_interact(url: str, repo_path: str | None = None):
 
             if line == "help":
                 print(f"  {c('Commands:', BOLD)}")
-                print(f"    help                  Show this help")
-                print(f"    tools                 List available tools")
-                print(f"    <tool_name>           Call a tool (prompts for args)")
-                print(f"    <tool_name> {{json}}    Call with inline JSON args")
-                print(f"    last                  Show last result (full JSON)")
-                print(f"    quit                  Exit")
+                print(f"    {c('tools', CYAN)}                 List available tools")
+                print(f"    {c('<tool_name>', CYAN)}           Call a tool (prompts for args)")
+                print(f"    {c('<tool_name> {json}', CYAN)}    Call with inline JSON args")
+                print(f"    {c('last', CYAN)}                  Show last result (full JSON)")
+                print(f"    {c('help', CYAN)}                  Show this help")
+                print(f"    {c('quit', CYAN)}                  Exit (or Ctrl+C)")
+                print()
+                print(f"  {c('Examples:', BOLD)}")
+                print(f'    scan_file {{"file_path": "/path/to/file.py"}}')
+                print(f'    scan_static {{"repo_path": "/path/to/repo", "severity": "HIGH"}}')
+                print(f'    explain_finding {{"file_path": "/path/to/file.py", "description": "SQL injection", "line_number": 42}}')
+                print(f'    get_fix {{"file_path": "/path/to/file.py", "description": "hardcoded password"}}')
+                print(f'    list_presets')
                 print()
                 continue
 
             if line == "tools":
+                # Group tools by category for clarity
+                ai_tools = {"scan_hybrid", "explain_finding", "get_fix"}
                 for name, t in tools.items():
-                    desc = t.description[:55] + "..." if len(t.description) > 55 else t.description
-                    print(f"  {c(name, CYAN):>30}  {desc}")
+                    tag = c("[AI]", YELLOW) if name in ai_tools else c("    ", DIM)
+                    print(f"  {tag} {c(name, CYAN)}")
+                    print(f"         {c(t.description, DIM)}")
+                print()
+                print(f"  {c('[AI]', YELLOW)} = requires CLAUDE_API_KEY or Bedrock credentials")
                 print()
                 continue
 
@@ -762,13 +870,27 @@ def _prompt_for_args(tool, default_repo: str | None) -> dict:
         enum_vals = prop.get("enum")
         default = prop.get("default")
 
+        # Smart defaults for path arguments
         if name == "repo_path" and default_repo:
             default = default_repo
+        elif name == "file_path" and default_repo:
+            # Suggest a likely file from the repo
+            repo = Path(default_repo)
+            candidates = (
+                list(repo.glob("*.py"))[:1]
+                or list(repo.glob("*.php"))[:1]
+                or list(repo.glob("*.js"))[:1]
+            )
+            if candidates:
+                default = str(candidates[0])
 
         hint = f" [{default}]" if default else ""
         req_mark = c("*", RED) if name in required else " "
         if enum_vals:
             hint = f" ({'/'.join(enum_vals)}){hint}"
+        # Show description for required args to help the user
+        if name in required and desc and not default:
+            print(f"      {c(desc, DIM)}")
 
         try:
             val = input(f"    {req_mark}{c(name, CYAN)}{hint}: ").strip()
@@ -782,7 +904,11 @@ def _prompt_for_args(tool, default_repo: str | None) -> dict:
             continue
 
         if ptype == "integer":
-            val = int(val)
+            try:
+                val = int(val)
+            except ValueError:
+                print(f"      {c('must be an integer, skipping', YELLOW)}")
+                continue
         elif ptype == "boolean":
             val = val.lower() in ("true", "1", "yes")
 
@@ -808,18 +934,21 @@ async def mode_list(url: str):
 
     try:
         tools_result = await session.list_tools()
+        ai_tools = {"scan_hybrid", "explain_finding", "get_fix"}
+
         for t in tools_result.tools:
-            print(f"\n{c(t.name, CYAN)}")
+            tag = f" {c('[AI]', YELLOW)}" if t.name in ai_tools else ""
+            print(f"\n{c(t.name, CYAN)}{tag}")
             print(f"  {t.description}")
             schema = t.inputSchema or {}
             props = schema.get("properties", {})
             required = set(schema.get("required", []))
             if props:
-                print(f"  {c('Parameters:', DIM)}")
+                print(f"  {c('Parameters:', BOLD)}")
                 for name, prop in props.items():
                     req = c("required", RED) if name in required else c("optional", DIM)
                     ptype = prop.get("type", "string")
-                    desc = prop.get("description", "")[:60]
+                    desc = prop.get("description", "")
                     enum_vals = prop.get("enum")
                     default = prop.get("default")
                     parts = [f"{ptype}", req]
@@ -827,11 +956,14 @@ async def mode_list(url: str):
                         parts.append(f"enum: {enum_vals}")
                     if default is not None:
                         parts.append(f"default: {default}")
-                    print(f"    {c(name, WHITE):>25}: {', '.join(parts)}")
+                    print(f"    {c(name, WHITE)}: {', '.join(parts)}")
                     if desc:
-                        print(f"    {'':>25}  {c(desc, DIM)}")
+                        print(f"      {c(desc, DIM)}")
             else:
                 print(f"  {c('No parameters', DIM)}")
+
+        print()
+        print(f"  {c('[AI]', YELLOW)} = requires CLAUDE_API_KEY or Bedrock credentials")
         print()
 
     finally:

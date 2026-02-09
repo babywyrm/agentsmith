@@ -1,8 +1,10 @@
 """
 MCP Server Authentication Middleware
 
-Bearer token authentication for the Starlette SSE server.
+Bearer token authentication for the Starlette MCP server.
 Token is read from AGENTSMITH_MCP_TOKEN environment variable.
+
+Supports both SSE (/sse, /messages/) and Streamable HTTP (/mcp) transports.
 """
 
 import logging

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agentsmith": {
+      "url": "http://localhost:2266/mcp/"
+    },
+    "agentsmith-sse": {
+      "url": "http://localhost:2266/sse"
+    }
+  }
+}
