@@ -445,7 +445,7 @@ async def handle_scan_static(arguments: dict[str, Any]) -> str:
     severity = _validate_severity(arguments.get("severity"))
 
     if not SCANNER_BIN.is_file():
-        return json.dumps({"error": "Scanner binary not found. Run ./setup.sh to build it."})
+        return json.dumps({"error": "Scanner binary not found. Run ./scripts/setup.sh to build it."})
 
     # Build command - auto-load rules from rules/ directory
     cmd = [str(SCANNER_BIN), "--dir", str(repo_path), "--output", "json"]
@@ -496,7 +496,7 @@ async def handle_scan_hybrid(arguments: dict[str, Any]) -> str:
         question = question[:MAX_QUESTION_LENGTH]
 
     if not SCANNER_BIN.is_file():
-        return json.dumps({"error": "Scanner binary not found. Run ./setup.sh to build it."})
+        return json.dumps({"error": "Scanner binary not found. Run ./scripts/setup.sh to build it."})
 
     # Build orchestrator command
     # When a preset is specified, let the preset control all settings.
@@ -729,7 +729,7 @@ async def handle_scan_file(arguments: dict[str, Any]) -> str:
     severity = _validate_severity(arguments.get("severity"))
 
     if not SCANNER_BIN.is_file():
-        return json.dumps({"error": "Scanner binary not found. Run ./setup.sh to build it."})
+        return json.dumps({"error": "Scanner binary not found. Run ./scripts/setup.sh to build it."})
 
     # The scanner works on directories, so we scan the parent and filter
     cmd = [str(SCANNER_BIN), "--dir", str(file_path.parent), "--output", "json"]

@@ -159,7 +159,7 @@ tests/
 
 ### All Tests
 ```bash
-source activate.sh
+source scripts/activate.sh
 python3 -m unittest discover tests -v
 ```
 

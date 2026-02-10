@@ -6,7 +6,7 @@ Python test suite for Agent Smith core functionality.
 
 ### Quick Test
 ```bash
-source activate.sh
+source scripts/activate.sh
 python3 tests/test_imports.py
 ```
 

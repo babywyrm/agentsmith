@@ -3,14 +3,15 @@
 # Sets up the complete environment: Go scanner binary + Python virtual environment
 #
 # Usage:
-#   ./setup.sh           # Full setup (Go build + Python venv + dependencies)
-#   ./setup.sh --python  # Python-only setup (skip Go build)
-#   ./setup.sh --go      # Go-only setup (build scanner binary)
+#   ./scripts/setup.sh           # Full setup (Go build + Python venv + dependencies)
+#   ./scripts/setup.sh --python  # Python-only setup (skip Go build)
+#   ./scripts/setup.sh --go      # Go-only setup (build scanner binary)
 
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 PYTHON_ONLY=false
 GO_ONLY=false
@@ -20,7 +21,7 @@ for arg in "$@"; do
         --python) PYTHON_ONLY=true ;;
         --go) GO_ONLY=true ;;
         --help|-h)
-            echo "Usage: ./setup.sh [--python|--go|--help]"
+            echo "Usage: ./scripts/setup.sh [--python|--go|--help]"
             echo ""
             echo "  --python   Python-only setup (skip Go build)"
             echo "  --go       Go-only setup (build scanner binary)"
@@ -55,7 +56,7 @@ if [ "$PYTHON_ONLY" = false ]; then
             echo "❌ Cannot build scanner without Go. Exiting."
             exit 1
         fi
-        echo "   Skipping Go build. You can run './setup.sh --go' later."
+        echo "   Skipping Go build. You can run './scripts/setup.sh --go' later."
         echo ""
     else
         GO_VERSION=$(go version | awk '{print $3}')
@@ -151,7 +152,7 @@ if [ -x "./scanner" ]; then
     echo "✓ Scanner binary:  ./scanner (ready)"
 else
     echo "⚠️  Scanner binary:  not found (hybrid mode unavailable)"
-    echo "   Run './setup.sh --go' to build it"
+    echo "   Run './scripts/setup.sh --go' to build it"
 fi
 
 # Check API key
@@ -176,7 +177,7 @@ echo ""
 echo "✅ Setup complete!"
 echo ""
 echo "Activate the environment:"
-echo "  source activate.sh"
+echo "  source scripts/activate.sh"
 echo ""
 echo "Quick start:"
 echo "  # Fast static scan (no API key needed)"

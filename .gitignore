@@ -121,8 +121,8 @@ gen/
 # Archive directory (old/unused code)
 __archive/
 
-# Setup scripts (keep these, but ignore any generated files)
-# setup.sh and activate.sh are tracked
+# Setup scripts (in scripts/ directory, tracked)
+# scripts/setup.sh, scripts/activate.sh, scripts/setup_test_targets.sh
 
 # OS-specific
 Thumbs.db

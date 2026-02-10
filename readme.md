@@ -50,12 +50,12 @@ git clone https://github.com/babywyrm/agentsmith.git
 cd agentsmith
 
 # Run the setup script (builds Go scanner + Python environment)
-./setup.sh
+./scripts/setup.sh
 
 # Activate the environment
-source activate.sh
+source scripts/activate.sh
 
-# Set your API key (required for AI modes)
+# Set your API key (required for AI-powered modes)
 export CLAUDE_API_KEY="sk-ant-api03-..."
 ```
 
@@ -85,9 +85,9 @@ export CLAUDE_API_KEY="sk-ant-api03-..."
 ### Setup Options
 
 ```bash
-./setup.sh             # Full setup (Go + Python)
-./setup.sh --python    # Python-only (skip Go build)
-./setup.sh --go        # Go-only (build scanner binary)
+./scripts/setup.sh             # Full setup (Go + Python)
+./scripts/setup.sh --python    # Python-only (skip Go build)
+./scripts/setup.sh --go        # Go-only (build scanner binary)
 ```
 
 ## Usage
@@ -376,47 +376,76 @@ go run gen_rule_json.go rules.go > rules/rules_core.json
 
 ```
 agentsmith/
-├── agentsmith.py              # Main entry point - unified CLI dispatcher
-├── agentsmith.go              # Go scanner source code
-├── scanner                    # Go scanner binary (built by setup.sh)
+│
+├── agentsmith.py              # Main CLI entry point — unified mode dispatcher
 ├── orchestrator.py            # Hybrid static + AI orchestrator (recommended)
 ├── smart_analyzer.py          # AI-powered multi-stage analyzer
 ├── ctf_analyzer.py            # CTF-focused analyzer
+├── summarize.py               # Scan results summarizer
+├── scrynet.py                 # Network-aware scanner entry point
+│
+├── agentsmith.go              # Go scanner source code
+├── rules.go                   # Master rule definitions (Go)
+├── gen_rule_json.go           # Rule JSON generator
+├── scrynet.go                 # Network scanner (Go)
+├── go.mod / go.sum            # Go module files
+├── scanner                    # Go scanner binary (built by scripts/setup.sh)
+│
+├── lib/                       # Shared Python library
+│   ├── ai_provider.py         # Claude / Bedrock client factory
+│   ├── model_registry.py      # AI model configuration & pricing
+│   ├── prompts.py             # Prompt factories
+│   ├── common.py              # Utilities, normalization, retry logic
+│   ├── models.py              # Data models
+│   ├── config.py              # Presets and smart defaults
+│   ├── output_manager.py      # Output formatting & exports
+│   ├── agentsmith_context.py  # Caching & review state
+│   ├── universal_detector.py  # Tech stack detection
+│   └── ...
+│
+├── mcp_server/                # MCP Server (SSE + Streamable HTTP)
+│   ├── server.py              # Server entry point (both transports)
+│   ├── tools.py               # 10 tool definitions & handlers
+│   ├── auth.py                # Bearer token middleware
+│   ├── config.py              # Server configuration
+│   ├── test_client.py         # Interactive REPL + test suite
+│   ├── requirements.txt       # MCP-specific dependencies
+│   └── README.md              # MCP server documentation
+│
 ├── rules/                     # Static analysis rules (auto-loaded)
 │   ├── rules_core.json        # Core OWASP Top 10 rules
 │   ├── rules_secrets.json     # Secret/credential detection
 │   ├── rules_infra.json       # Infrastructure security
 │   ├── rules_cicd.json        # CI/CD pipeline security
 │   └── rules_supplychain.json # Supply chain security
-├── lib/                       # Shared Python library
-│   ├── common.py              # Utilities and normalization
-│   ├── models.py              # Data models
-│   ├── config.py              # Presets and smart defaults
-│   ├── output_manager.py      # Output formatting
-│   ├── agentsmith_context.py  # Caching & review state
-│   ├── model_registry.py      # AI model configuration
-│   ├── prompts.py             # Prompt factories
-│   ├── ctf_prompts.py         # CTF-specific prompts
-│   └── universal_detector.py  # Tech stack detection
-├── prompts/                   # Text-based prompt templates
+│
+├── prompts/                   # AI prompt templates (per profile)
 │   ├── owasp_profile.txt
-│   ├── owasp_enhanced_profile.txt
 │   ├── ctf_enhanced_profile.txt
 │   ├── attacker_profile.txt
 │   └── ...
-├── mcp_server/                # MCP Server (SSE transport)
-│   ├── server.py              # SSE server entry point
-│   ├── tools.py               # Tool definitions and handlers
-│   ├── auth.py                # Bearer token middleware
-│   ├── config.py              # Server configuration
-│   └── requirements.txt       # MCP-specific dependencies
-├── rules.go                   # Master rule definitions (Go source)
-├── gen_rule_json.go           # Rule JSON generator utility
-├── tests/                     # Test suite (190 tests)
-├── setup.sh                   # Full setup script (Go + Python)
-├── activate.sh                # Quick environment activation
+│
+├── scripts/                   # Setup & utility scripts
+│   ├── setup.sh               # Full setup (Go + Python)
+│   ├── activate.sh            # Quick environment activation
+│   └── setup_test_targets.sh  # Clone vulnerable test targets
+│
+├── tests/                     # Test suite (190+ tests)
+│   ├── test_dvmcp.sh          # DVMCP MCP security scan suite
+│   └── test_targets/          # Vulnerable apps (gitignored)
+│       ├── DVWA/
+│       ├── DVMCP/
+│       └── ...
+│
+├── docs/                      # Documentation
+│   ├── MCP_SCANNING.md        # MCP scanning guide & walkthrough
+│   ├── CHANGELOG.md           # Release changelog
+│   ├── USE_CASES.md           # Usage examples & workflows
+│   └── ...
+│
 ├── requirements.txt           # Python dependencies
-└── output/                    # Analysis results (gitignored)
+├── readme.md                  # This file
+└── .cursor/mcp.json           # Cursor MCP client config
 ```
 
 ## Review State & Caching

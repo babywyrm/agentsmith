@@ -13,7 +13,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_DIR="$SCRIPT_DIR/tests/test_targets"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TARGET_DIR="$PROJECT_ROOT/tests/test_targets"
 
 CLONE_DVWA=false
 CLONE_WEBGOAT=false
