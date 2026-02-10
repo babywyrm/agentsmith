@@ -1029,7 +1029,54 @@ _DANGEROUS_TOOL_PATTERNS = {
         "label": "Environment/Config Access",
         "cwe": "CWE-200",
     },
+    "HIGH_auth": {
+        "names": re.compile(
+            r"(authenticate|login|auth|verify_token|session|manage_permissions|"
+            r"grant_access|revoke|set_role|change_password)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"authenticat\w+|session\s+token|verify\s+(token|session|credential)|"
+            r"manage\s+(permission|access|role)|grant|revoke",
+            re.IGNORECASE,
+        ),
+        "label": "Authentication/Authorization Control",
+        "cwe": "CWE-287",
+    },
+    "HIGH_excessive_perms": {
+        "names": re.compile(
+            r"(file_manager|admin|manage_system|root|sudo|escalat)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"(read|write|delete)\s+(and|,)\s+(read|write|delete)|"
+            r"full\s+access|all\s+(permission|operation)|unrestrict",
+            re.IGNORECASE,
+        ),
+        "label": "Excessive Permissions (multi-action tool)",
+        "cwe": "CWE-250",
+    },
 }
+
+# Patterns in tool descriptions that suggest hidden/poisoned instructions
+_TOOL_POISONING_PATTERNS = re.compile(
+    r"(ignore\s+(previous|all|above)\s+(instruction|rule|prompt)|"
+    r"do\s+not\s+(tell|reveal|mention|show)|"
+    r"secretly|covertly|hidden\s+instruction|"
+    r"override\s+(previous|safety|system)|"
+    r"disregard\s+(previous|safety|all)|"
+    r"you\s+must\s+(always|never)|"
+    r"system\s+prompt|"
+    r"<\s*(system|hidden|secret)\s*>)",
+    re.IGNORECASE,
+)
+
+# Parameters that suggest credential/token handling
+_CREDENTIAL_PARAM_PATTERNS = re.compile(
+    r"(password|passwd|pwd|secret|token|api_key|apikey|auth_token|"
+    r"session_id|session_token|bearer|credential|access_key|private_key)",
+    re.IGNORECASE,
+)
 
 # Parameters that suggest path traversal or injection risks
 _PARAM_RISK_PATTERNS = {
@@ -1145,7 +1192,72 @@ def _analyze_tool_security(tool) -> list[dict]:
                 "recommendation": "Add minimum and maximum to prevent abuse.",
             })
 
-    # 3. Check for missing description (makes tools harder to audit)
+    # 3. Check for tool poisoning (hidden instructions in descriptions)
+    if _TOOL_POISONING_PATTERNS.search(desc):
+        findings.append({
+            "severity": "CRITICAL",
+            "category": "tool_poisoning",
+            "title": "Possible tool poisoning — hidden instructions in description",
+            "detail": (
+                f"Tool '{name}' description contains language patterns commonly "
+                f"used for prompt injection or tool poisoning attacks. The description "
+                f"may contain hidden instructions designed to manipulate LLM behavior."
+            ),
+            "tool": name,
+            "cwe": "CWE-94",
+            "recommendation": (
+                "Review the tool description carefully for hidden instructions. "
+                "Strip non-functional text. Tool descriptions should only describe "
+                "what the tool does, not instruct the LLM."
+            ),
+        })
+
+    # 4. Check for credential parameters (password, token, secret in param names)
+    for param_name, param_schema in props.items():
+        if _CREDENTIAL_PARAM_PATTERNS.search(param_name):
+            pdesc = param_schema.get("description", "")
+            findings.append({
+                "severity": "HIGH",
+                "category": "credential_exposure",
+                "title": f"Tool accepts credentials via parameter '{param_name}'",
+                "detail": (
+                    f"Tool '{name}' accepts sensitive credential data through "
+                    f"parameter '{param_name}'. Credentials passed as tool arguments "
+                    f"may be logged, cached, or exposed in MCP transport."
+                ),
+                "tool": name,
+                "parameter": param_name,
+                "cwe": "CWE-522",
+                "recommendation": (
+                    "Avoid passing credentials as tool parameters. Use server-side "
+                    "credential management, environment variables, or a secure vault instead."
+                ),
+            })
+
+    # 5. Check for excessive permissions (tool can do read + write + delete)
+    action_verbs_in_desc = set()
+    for verb in ["read", "write", "delete", "create", "execute", "modify", "remove"]:
+        if verb in desc.lower():
+            action_verbs_in_desc.add(verb)
+    if len(action_verbs_in_desc) >= 3:
+        findings.append({
+            "severity": "HIGH",
+            "category": "excessive_permissions",
+            "title": f"Tool has excessive permissions ({', '.join(sorted(action_verbs_in_desc))})",
+            "detail": (
+                f"Tool '{name}' combines {len(action_verbs_in_desc)} different actions "
+                f"({', '.join(sorted(action_verbs_in_desc))}). Multi-action tools increase "
+                f"the blast radius if compromised or misused."
+            ),
+            "tool": name,
+            "cwe": "CWE-250",
+            "recommendation": (
+                "Split into separate tools with minimal permissions each (principle of least privilege). "
+                "E.g., separate read_file, write_file, delete_file tools."
+            ),
+        })
+
+    # 6. Check for missing description (makes tools harder to audit)
     if not desc or len(desc) < 10:
         findings.append({
             "severity": "LOW",

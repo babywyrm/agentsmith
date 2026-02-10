@@ -249,6 +249,27 @@ mcp> explain_finding {"file_path": "/path/to/file.py", "description": "SQL injec
 mcp> get_fix {"file_path": "/path/to/file.py", "description": "hardcoded password on line 15"}
 ```
 
+### DVMCP Test Suite (Damn Vulnerable MCP)
+
+Scan deliberately vulnerable MCP servers ([DVMCP](https://github.com/harishsg993010/damn-vulnerable-MCP-server)):
+
+```bash
+# Clone DVMCP (one time)
+git clone https://github.com/harishsg993010/damn-vulnerable-MCP-server.git tests/test_targets/DVMCP
+
+# Scan all 10 challenges (launches servers, scans, reports, cleans up)
+./tests/test_dvmcp.sh
+
+# Scan specific challenges only
+./tests/test_dvmcp.sh 1 8 9
+
+# Just start the DVMCP servers (for manual testing)
+./tests/test_dvmcp.sh --setup-only
+
+# Kill all DVMCP servers
+./tests/test_dvmcp.sh --kill
+```
+
 ### Bedrock Provider
 
 ```bash
