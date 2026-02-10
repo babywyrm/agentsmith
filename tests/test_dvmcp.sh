@@ -21,7 +21,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DVMCP_DIR="$PROJECT_ROOT/tests/test_targets/DVMCP"
 VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python"
 AGENTSMITH_URL="${AGENTSMITH_URL:-http://localhost:2266/sse}"
-DVMCP_PIDS=()
 
 # Colors
 BOLD="\033[1m"
@@ -32,37 +31,43 @@ YELLOW="\033[0;33m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
-# Challenge metadata
-declare -A CHALLENGE_NAMES=(
-    [1]="Basic Prompt Injection"
-    [2]="Tool Poisoning"
-    [3]="Excessive Permission Scope"
-    [4]="Rug Pull Attack"
-    [5]="Tool Shadowing"
-    [6]="Indirect Prompt Injection"
-    [7]="Token Theft"
-    [8]="Malicious Code Execution"
-    [9]="Remote Access Control"
-    [10]="Multi-Vector Attack"
-)
+# ============================================================================
+# Challenge data (no associative arrays — compatible with Bash 3)
+# ============================================================================
 
-declare -A CHALLENGE_PORTS=(
-    [1]=9001 [2]=9002 [3]=9003 [4]=9004 [5]=9005
-    [6]=9006 [7]=9007 [8]=9008 [9]=9009 [10]=9010
-)
+challenge_name() {
+    case "$1" in
+        1)  echo "Basic Prompt Injection" ;;
+        2)  echo "Tool Poisoning" ;;
+        3)  echo "Excessive Permission Scope" ;;
+        4)  echo "Rug Pull Attack" ;;
+        5)  echo "Tool Shadowing" ;;
+        6)  echo "Indirect Prompt Injection" ;;
+        7)  echo "Token Theft" ;;
+        8)  echo "Malicious Code Execution" ;;
+        9)  echo "Remote Access Control" ;;
+        10) echo "Multi-Vector Attack" ;;
+    esac
+}
 
-declare -A CHALLENGE_PATHS=(
-    [1]="challenges/easy/challenge1/server_sse.py"
-    [2]="challenges/easy/challenge2/server_sse.py"
-    [3]="challenges/easy/challenge3/server_sse.py"
-    [4]="challenges/medium/challenge4/server_sse.py"
-    [5]="challenges/medium/challenge5/server_sse.py"
-    [6]="challenges/medium/challenge6/server_sse.py"
-    [7]="challenges/medium/challenge7/server_sse.py"
-    [8]="challenges/hard/challenge8/server_sse.py"
-    [9]="challenges/hard/challenge9/server_sse.py"
-    [10]="challenges/hard/challenge10/server_sse.py"
-)
+challenge_port() {
+    echo $((9000 + $1))
+}
+
+challenge_path() {
+    case "$1" in
+        1)  echo "challenges/easy/challenge1/server_sse.py" ;;
+        2)  echo "challenges/easy/challenge2/server_sse.py" ;;
+        3)  echo "challenges/easy/challenge3/server_sse.py" ;;
+        4)  echo "challenges/medium/challenge4/server_sse.py" ;;
+        5)  echo "challenges/medium/challenge5/server_sse.py" ;;
+        6)  echo "challenges/medium/challenge6/server_sse.py" ;;
+        7)  echo "challenges/medium/challenge7/server_sse.py" ;;
+        8)  echo "challenges/hard/challenge8/server_sse.py" ;;
+        9)  echo "challenges/hard/challenge9/server_sse.py" ;;
+        10) echo "challenges/hard/challenge10/server_sse.py" ;;
+    esac
+}
 
 # ============================================================================
 # Helpers
@@ -74,30 +79,29 @@ warn() { echo -e "  ${YELLOW}!${RESET} $*"; }
 err()  { echo -e "  ${RED}✗${RESET} $*"; }
 
 check_prereqs() {
-    if [[ ! -d "$DVMCP_DIR" ]]; then
+    if [ ! -d "$DVMCP_DIR" ]; then
         err "DVMCP not found at $DVMCP_DIR"
         log "Clone it with: git clone https://github.com/harishsg993010/damn-vulnerable-MCP-server.git tests/test_targets/DVMCP"
         exit 1
     fi
 
-    if [[ ! -f "$VENV_PYTHON" ]]; then
+    if [ ! -f "$VENV_PYTHON" ]; then
         err "Python venv not found at $VENV_PYTHON"
         exit 1
     fi
 
     # Check Agent Smith MCP server is running
-    if ! curl -s "$AGENTSMITH_URL" >/dev/null 2>&1; then
-        health_url="${AGENTSMITH_URL%/sse}/health"
-        if ! curl -s "$health_url" >/dev/null 2>&1; then
-            err "Agent Smith MCP server not reachable at $AGENTSMITH_URL"
-            log "Start it with: python3 -m mcp_server --no-auth"
-            exit 1
-        fi
+    local health_url
+    health_url="${AGENTSMITH_URL%/sse}/health"
+    if ! curl -s "$health_url" >/dev/null 2>&1; then
+        err "Agent Smith MCP server not reachable at $health_url"
+        log "Start it with: python3 -m mcp_server --no-auth"
+        exit 1
     fi
+    ok "Agent Smith MCP server is healthy"
 }
 
 setup_dvmcp_dirs() {
-    # Create directories needed by DVMCP challenges
     mkdir -p /tmp/dvmcp_challenge3/public /tmp/dvmcp_challenge3/private
     mkdir -p /tmp/dvmcp_challenge4/state
     mkdir -p /tmp/dvmcp_challenge6/user_uploads
@@ -113,9 +117,12 @@ setup_dvmcp_dirs() {
 
 start_challenge() {
     local num=$1
-    local port=${CHALLENGE_PORTS[$num]}
-    local path=${CHALLENGE_PATHS[$num]}
-    local name=${CHALLENGE_NAMES[$num]}
+    local port
+    port=$(challenge_port "$num")
+    local path
+    path=$(challenge_path "$num")
+    local name
+    name=$(challenge_name "$num")
 
     # Check if port is already in use
     if lsof -i ":$port" >/dev/null 2>&1; then
@@ -126,32 +133,34 @@ start_challenge() {
     cd "$DVMCP_DIR"
     "$VENV_PYTHON" "$path" >/dev/null 2>&1 &
     local pid=$!
-    DVMCP_PIDS+=("$pid")
+    DVMCP_PIDS="$DVMCP_PIDS $pid"
     echo -e "  ${DIM}Challenge $num${RESET} ($name) → port $port [pid $pid]"
     return 0
 }
 
 kill_dvmcp() {
     log "Stopping DVMCP servers..."
+    local port
     for port in 9001 9002 9003 9004 9005 9006 9007 9008 9009 9010; do
         local pid
         pid=$(lsof -ti ":$port" 2>/dev/null || true)
-        if [[ -n "$pid" ]]; then
+        if [ -n "$pid" ]; then
             kill "$pid" 2>/dev/null || true
-            echo -e "  ${DIM}Killed port $port (pid $pid)${RESET}"
         fi
     done
     # Also kill tracked PIDs
-    for pid in "${DVMCP_PIDS[@]}"; do
+    for pid in $DVMCP_PIDS; do
         kill "$pid" 2>/dev/null || true
     done
-    ok "All DVMCP servers stopped"
+    ok "DVMCP servers stopped"
 }
 
 scan_challenge() {
     local num=$1
-    local port=${CHALLENGE_PORTS[$num]}
-    local name=${CHALLENGE_NAMES[$num]}
+    local port
+    port=$(challenge_port "$num")
+    local name
+    name=$(challenge_name "$num")
     local url="http://localhost:$port/sse"
 
     echo ""
@@ -173,8 +182,8 @@ async def scan():
     from mcp import ClientSession
 
     ctx = sse_client('$AGENTSMITH_URL')
-    rs, ws = await ctx.__aenter__()
-    session = ClientSession(rs, ws)
+    streams = await ctx.__aenter__()
+    session = ClientSession(streams[0], streams[1])
     await session.__aenter__()
     await session.initialize()
 
@@ -197,7 +206,7 @@ except Exception as e:
     print(json.dumps({'error': str(e)}))
 " 2>/dev/null)
 
-    if echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'error' not in d else 1)" 2>/dev/null; then
+    if echo "$result" | "$VENV_PYTHON" -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'error' not in d else 1)" 2>/dev/null; then
         # Parse and display results
         echo "$result" | "$VENV_PYTHON" -c "
 import sys, json
@@ -247,7 +256,7 @@ if len(findings) > 5:
         return 0
     else
         local error
-        error=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','unknown'))" 2>/dev/null || echo "parse error")
+        error=$(echo "$result" | "$VENV_PYTHON" -c "import sys,json; print(json.load(sys.stdin).get('error','unknown'))" 2>/dev/null || echo "parse error")
         err "Scan failed: $error"
         return 1
     fi
@@ -257,10 +266,11 @@ if len(findings) > 5:
 # Main
 # ============================================================================
 
+DVMCP_PIDS=""
 trap kill_dvmcp EXIT
 
 # Parse args
-CHALLENGES=()
+CHALLENGES=""
 SETUP_ONLY=false
 KILL_ONLY=false
 
@@ -268,14 +278,14 @@ for arg in "$@"; do
     case "$arg" in
         --setup-only) SETUP_ONLY=true ;;
         --kill)       KILL_ONLY=true ;;
-        [0-9]*)       CHALLENGES+=("$arg") ;;
+        [0-9]*)       CHALLENGES="$CHALLENGES $arg" ;;
         *)            echo "Usage: $0 [--setup-only|--kill] [challenge_numbers...]"; exit 1 ;;
     esac
 done
 
 # Default: all 10 challenges
-if [[ ${#CHALLENGES[@]} -eq 0 ]]; then
-    CHALLENGES=(1 2 3 4 5 6 7 8 9 10)
+if [ -z "$CHALLENGES" ]; then
+    CHALLENGES="1 2 3 4 5 6 7 8 9 10"
 fi
 
 if $KILL_ONLY; then
@@ -283,12 +293,16 @@ if $KILL_ONLY; then
     exit 0
 fi
 
+# Count challenges
+NUM_CHALLENGES=0
+for _ in $CHALLENGES; do NUM_CHALLENGES=$((NUM_CHALLENGES + 1)); done
+
 echo ""
 echo -e "${BOLD}Agent Smith — DVMCP Security Scan${RESET}"
 echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "  Scanner:    ${CYAN}$AGENTSMITH_URL${RESET}"
 echo -e "  DVMCP:      ${DIM}$DVMCP_DIR${RESET}"
-echo -e "  Challenges: ${#CHALLENGES[@]}"
+echo -e "  Challenges: $NUM_CHALLENGES"
 echo ""
 
 check_prereqs
@@ -300,13 +314,13 @@ ok "Test data ready"
 
 # Start challenge servers
 log "Starting DVMCP challenge servers..."
-for num in "${CHALLENGES[@]}"; do
+for num in $CHALLENGES; do
     start_challenge "$num"
 done
 
 # Wait for servers to be ready
 echo -e "  ${DIM}Waiting for servers to start...${RESET}"
-sleep 3
+sleep 4
 
 if $SETUP_ONLY; then
     ok "DVMCP servers running. Press Ctrl+C to stop."
@@ -318,22 +332,21 @@ fi
 log "Scanning DVMCP challenges..."
 PASSED=0
 FAILED=0
-TOTAL_FINDINGS=0
 
-for num in "${CHALLENGES[@]}"; do
+for num in $CHALLENGES; do
     if scan_challenge "$num"; then
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 done
 
 # Summary
 echo ""
 echo -e "${BOLD}━━━ Summary ━━━${RESET}"
-echo -e "  Scanned:  ${#CHALLENGES[@]} challenges"
+echo -e "  Scanned:  $NUM_CHALLENGES challenges"
 echo -e "  Success:  ${GREEN}$PASSED${RESET}"
-if [[ $FAILED -gt 0 ]]; then
+if [ "$FAILED" -gt 0 ]; then
     echo -e "  Failed:   ${RED}$FAILED${RESET}"
 fi
 echo ""

@@ -130,7 +130,8 @@ async def connect(url: str, retries: int = 2, delay: float = 1.0):
     for attempt in range(1, retries + 1):
         try:
             ctx = sse_client(url)
-            read_stream, write_stream = await ctx.__aenter__()
+            streams = await ctx.__aenter__()
+            read_stream, write_stream = streams[0], streams[1]
             session = ClientSession(read_stream, write_stream)
             await session.__aenter__()
             await session.initialize()

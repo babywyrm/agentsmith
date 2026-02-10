@@ -188,6 +188,26 @@ Options:
 - **File size limits**: Single-file operations limited to 1 MB. AI context limited to 100 KB.
 - **Input limits**: String parameters have max length enforcement. Findings capped at 500 per request.
 - **No open-by-default**: Auth is mandatory in production mode.
+- **MCP scanner isolation**: `scan_mcp` runs the target connection in a subprocess to prevent async context leaks between the server and the scanned target.
+
+### What `scan_mcp` Checks
+
+| Check | What it catches | CWE |
+|-------|----------------|-----|
+| Transport security | HTTP vs HTTPS | CWE-319 |
+| Authentication | No-auth servers | CWE-306 |
+| Command/code execution | Tools with exec/shell/eval patterns | CWE-78 |
+| File write/delete | Filesystem mutation tools | CWE-73 |
+| Network/SSRF | Tools that fetch arbitrary URLs | CWE-918 |
+| Database access | Raw SQL/query tools | CWE-89 |
+| File read / path traversal | Unconstrained path parameters | CWE-22 |
+| Environment access | Tools exposing env vars/config | CWE-200 |
+| Auth/authz control | Tools managing permissions/tokens | CWE-287 |
+| Credential exposure | Password/token/secret in parameters | CWE-522 |
+| Excessive permissions | Tools combining read+write+delete | CWE-250 |
+| Tool poisoning | Hidden instructions in descriptions | CWE-94 |
+| Weak input validation | Missing maxLength, enum, min/max | CWE-20 |
+| Sensitive resources | Resources with secret/key/password URIs | CWE-200 |
 
 ## Architecture
 
@@ -205,7 +225,7 @@ mcp_server/server.py  (Starlette + uvicorn)
     │
     ├── auth.py          Bearer token middleware
     ├── config.py         Environment-based configuration
-    └── tools.py          9 tool definitions + handlers
+    └── tools.py          10 tool definitions + handlers
             │
             ├── scan_static       → Go scanner binary (70+ OWASP rules)
             ├── scan_file         → Go scanner (single file)
@@ -225,7 +245,7 @@ mcp_server/server.py  (Starlette + uvicorn)
 
 ```bash
 curl http://localhost:2266/health
-# {"status":"healthy","service":"agentsmith-mcp","tools":9}
+# {"status":"healthy","service":"agentsmith-mcp","tools":10}
 ```
 
 ### Scan a Single File via curl + MCP

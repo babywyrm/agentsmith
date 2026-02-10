@@ -1317,11 +1317,96 @@ def _analyze_resource_security(resource) -> list[dict]:
     return findings
 
 
+_SCAN_MCP_SCRIPT = '''
+import asyncio, json, sys
+
+async def scan(target_url, transport, timeout, auth_token):
+    """Connect to target MCP server and enumerate everything."""
+    headers = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    if transport == "sse":
+        from mcp.client.sse import sse_client
+        client_ctx = sse_client(target_url, headers=headers, timeout=float(timeout))
+    else:
+        from mcp.client.streamable_http import streamablehttp_client
+        client_ctx = streamablehttp_client(target_url, headers=headers, timeout=float(timeout))
+
+    from mcp import ClientSession
+
+    result = {"tools": [], "resources": [], "prompts": [], "capabilities": {}}
+
+    async with client_ctx as streams:
+        read_stream, write_stream = streams[0], streams[1]
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            # Capabilities
+            caps = session.get_server_capabilities()
+            if caps:
+                if caps.tools:
+                    result["capabilities"]["tools"] = True
+                if caps.resources:
+                    result["capabilities"]["resources"] = True
+                if caps.prompts:
+                    result["capabilities"]["prompts"] = True
+                if caps.experimental:
+                    result["capabilities"]["experimental"] = True
+
+            # Tools
+            try:
+                tools_result = await session.list_tools()
+                for t in tools_result.tools:
+                    result["tools"].append({
+                        "name": t.name,
+                        "description": t.description or "",
+                        "inputSchema": t.inputSchema or {},
+                    })
+            except Exception as e:
+                result["tools_error"] = str(e)
+
+            # Resources
+            try:
+                resources_result = await session.list_resources()
+                for r in resources_result.resources:
+                    result["resources"].append({
+                        "name": r.name,
+                        "uri": str(r.uri) if r.uri else "",
+                        "description": r.description or "",
+                    })
+            except Exception:
+                pass
+
+            # Prompts
+            try:
+                prompts_result = await session.list_prompts()
+                for p in prompts_result.prompts:
+                    result["prompts"].append({
+                        "name": p.name,
+                        "description": p.description or "",
+                    })
+            except Exception:
+                pass
+
+    return result
+
+args = json.loads(sys.argv[1])
+try:
+    data = asyncio.run(scan(args["url"], args["transport"], args["timeout"], args.get("auth_token")))
+    print(json.dumps(data))
+except Exception as e:
+    print(json.dumps({"error": f"{type(e).__name__}: {e}"}))
+'''
+
+
 async def _connect_and_scan(target_url: str, transport: str, timeout: int,
                             auth_token: str | None) -> dict:
-    """Connect to a target MCP server and run security analysis."""
-    import httpx
+    """Connect to a target MCP server and run security analysis.
 
+    Runs the MCP client in a subprocess to avoid async context conflicts
+    with the server's own event loop.
+    """
     results: dict[str, Any] = {
         "target": target_url,
         "transport": transport,
@@ -1345,8 +1430,8 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
             "recommendation": "Use HTTPS with a valid TLS certificate for production deployments.",
         })
 
-    # --- Auth check: try connecting without auth first ---
-    auth_required = False
+    # --- Health check ---
+    import httpx
     if not auth_token:
         try:
             health_url = target_url.rsplit("/", 1)[0] + "/health"
@@ -1357,31 +1442,31 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
         except Exception:
             pass
 
-    # --- Connect via MCP protocol ---
-    headers = {}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
+    # --- Connect via subprocess (avoids async context conflicts) ---
+    scan_args = json.dumps({
+        "url": target_url,
+        "transport": transport,
+        "timeout": timeout,
+        "auth_token": auth_token,
+    })
 
     try:
-        if transport == "sse":
-            from mcp.client.sse import sse_client
-            ctx = sse_client(target_url, headers=headers, timeout=float(timeout))
-        else:
-            from mcp.client.streamable_http import streamablehttp_client
-            ctx = streamablehttp_client(target_url, headers=headers, timeout=float(timeout))
-
-        read_stream, write_stream = await ctx.__aenter__()
-
-        from mcp import ClientSession
-        session = ClientSession(read_stream, write_stream)
-        await session.__aenter__()
-        await session.initialize()
-
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-c", _SCAN_MCP_SCRIPT, scan_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(PROJECT_ROOT),
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 15)
+    except asyncio.TimeoutError:
+        return {"error": "Connection timed out", "target": target_url}
     except Exception as e:
-        err_msg = f"{type(e).__name__}: {e}"
-        if "401" in err_msg or "403" in err_msg or "Unauthorized" in err_msg:
-            auth_required = True
-            results["auth_required"] = True
+        return {"error": f"Subprocess failed: {type(e).__name__}: {e}", "target": target_url}
+
+    if not stdout or not stdout.strip():
+        err_detail = stderr.decode(errors="replace")[:500] if stderr else "no output"
+        # Check for auth rejection
+        if "401" in err_detail or "403" in err_detail:
             findings.append({
                 "severity": "INFO",
                 "category": "authentication",
@@ -1390,12 +1475,36 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
                 "cwe": "N/A",
                 "recommendation": "N/A — authentication is enforced.",
             })
+            results["auth_required"] = True
+            results["summary"] = {
+                "total_tools": 0, "total_resources": 0, "total_prompts": 0,
+                "total_findings": len(findings), "by_severity": {"INFO": 1},
+                "risk_score": "CLEAN",
+            }
             return results
-        else:
-            return {"error": f"Connection failed: {err_msg}", "target": target_url}
+        return {"error": f"Connection failed: {err_detail}", "target": target_url}
 
     try:
-        # --- Check if auth was NOT required ---
+        enumerated = json.loads(stdout.decode())
+    except json.JSONDecodeError:
+        return {"error": f"Invalid response from scanner subprocess", "target": target_url}
+
+    if "error" in enumerated:
+        err_msg = enumerated["error"]
+        if "401" in err_msg or "403" in err_msg:
+            findings.append({
+                "severity": "INFO",
+                "category": "authentication",
+                "title": "Server requires authentication",
+                "detail": "Connection was rejected — server enforces authentication. This is good.",
+                "cwe": "N/A",
+                "recommendation": "N/A — authentication is enforced.",
+            })
+            results["auth_required"] = True
+        else:
+            return {"error": f"Connection failed: {err_msg}", "target": target_url}
+    else:
+        # --- Auth check ---
         if not auth_token:
             findings.append({
                 "severity": "HIGH",
@@ -1409,87 +1518,75 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
                 "recommendation": "Enable bearer token authentication or mutual TLS.",
             })
 
-        # --- Server capabilities ---
-        caps = session.get_server_capabilities()
-        results["server_info"]["capabilities"] = {}
-        if caps:
-            if caps.tools:
-                results["server_info"]["capabilities"]["tools"] = True
-            if caps.resources:
-                results["server_info"]["capabilities"]["resources"] = True
-            if caps.prompts:
-                results["server_info"]["capabilities"]["prompts"] = True
-            if caps.experimental:
-                results["server_info"]["capabilities"]["experimental"] = True
-                findings.append({
-                    "severity": "LOW",
-                    "category": "experimental_features",
-                    "title": "Experimental capabilities enabled",
-                    "detail": "Server exposes experimental MCP capabilities which may be unstable or insecure.",
-                    "cwe": "CWE-1104",
-                    "recommendation": "Disable experimental features in production.",
-                })
+        # --- Capabilities ---
+        results["server_info"]["capabilities"] = enumerated.get("capabilities", {})
+        if enumerated.get("capabilities", {}).get("experimental"):
+            findings.append({
+                "severity": "LOW",
+                "category": "experimental_features",
+                "title": "Experimental capabilities enabled",
+                "detail": "Server exposes experimental MCP capabilities which may be unstable or insecure.",
+                "cwe": "CWE-1104",
+                "recommendation": "Disable experimental features in production.",
+            })
 
-        # --- Enumerate and analyze tools ---
-        try:
-            tools_result = await session.list_tools()
-            for t in tools_result.tools:
-                tool_info = {
-                    "name": t.name,
-                    "description": (t.description or "")[:200],
-                    "parameters": list((t.inputSchema or {}).get("properties", {}).keys()),
-                }
-                results["tools"].append(tool_info)
-                findings.extend(_analyze_tool_security(t))
-        except Exception as e:
-            results["tools_error"] = str(e)
+        # --- Analyze tools ---
+        for t_data in enumerated.get("tools", []):
+            tool_info = {
+                "name": t_data["name"],
+                "description": t_data.get("description", "")[:200],
+                "parameters": list(t_data.get("inputSchema", {}).get("properties", {}).keys()),
+            }
+            results["tools"].append(tool_info)
 
-        # --- Enumerate and analyze resources ---
-        try:
-            resources_result = await session.list_resources()
-            for r in resources_result.resources:
-                res_info = {
-                    "name": r.name,
-                    "uri": str(r.uri) if r.uri else "",
-                    "description": (r.description or "")[:200],
-                }
-                results["resources"].append(res_info)
-                findings.extend(_analyze_resource_security(r))
-        except Exception:
-            pass  # Resources not supported — that's fine
+            # Create a lightweight tool object for the heuristics engine
+            class _ToolProxy:
+                pass
+            proxy = _ToolProxy()
+            proxy.name = t_data["name"]
+            proxy.description = t_data.get("description", "")
+            proxy.inputSchema = t_data.get("inputSchema", {})
+            findings.extend(_analyze_tool_security(proxy))
 
-        # --- Enumerate prompts ---
-        try:
-            prompts_result = await session.list_prompts()
-            for p in prompts_result.prompts:
-                results["prompts"].append({
-                    "name": p.name,
-                    "description": (p.description or "")[:200],
-                })
-        except Exception:
-            pass  # Prompts not supported — that's fine
+        # --- Analyze resources ---
+        for r_data in enumerated.get("resources", []):
+            results["resources"].append({
+                "name": r_data["name"],
+                "uri": r_data.get("uri", ""),
+                "description": r_data.get("description", "")[:200],
+            })
+            class _ResProxy:
+                pass
+            rproxy = _ResProxy()
+            rproxy.name = r_data["name"]
+            rproxy.uri = r_data.get("uri", "")
+            rproxy.description = r_data.get("description", "")
+            findings.extend(_analyze_resource_security(rproxy))
 
-        # --- Summary statistics ---
-        sev_counts = {}
-        for f in findings:
-            s = f.get("severity", "INFO")
-            sev_counts[s] = sev_counts.get(s, 0) + 1
+        # --- Prompts ---
+        for p_data in enumerated.get("prompts", []):
+            results["prompts"].append({
+                "name": p_data["name"],
+                "description": p_data.get("description", "")[:200],
+            })
 
-        results["summary"] = {
-            "total_tools": len(results["tools"]),
-            "total_resources": len(results["resources"]),
-            "total_prompts": len(results["prompts"]),
-            "total_findings": len(findings),
-            "by_severity": sev_counts,
-            "risk_score": _calculate_risk_score(findings),
-        }
+        if "tools_error" in enumerated:
+            results["tools_error"] = enumerated["tools_error"]
 
-    finally:
-        try:
-            await session.__aexit__(None, None, None)
-            await ctx.__aexit__(None, None, None)
-        except Exception:
-            pass
+    # --- Summary ---
+    sev_counts: dict[str, int] = {}
+    for f in findings:
+        s = f.get("severity", "INFO")
+        sev_counts[s] = sev_counts.get(s, 0) + 1
+
+    results["summary"] = {
+        "total_tools": len(results["tools"]),
+        "total_resources": len(results["resources"]),
+        "total_prompts": len(results["prompts"]),
+        "total_findings": len(findings),
+        "by_severity": sev_counts,
+        "risk_score": _calculate_risk_score(findings),
+    }
 
     return results
 
