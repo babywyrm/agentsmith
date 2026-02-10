@@ -1,12 +1,14 @@
 """
 MCP Tool Definitions and Handlers
 
-Nine core tools that call into Agent Smith's scanning and analysis pipeline.
+Ten core tools that call into Agent Smith's scanning and analysis pipeline.
 """
 
+import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -387,6 +389,45 @@ TOOL_DEFINITIONS = [
                 "recommendation": {
                     "type": "string",
                     "description": "Existing recommendation or fix guidance, if available",
+                },
+            },
+        },
+    },
+    {
+        "name": "scan_mcp",
+        "description": (
+            "Security-scan a remote MCP server. Connects to the target, enumerates "
+            "tools/resources/prompts, and analyzes them for security risks: missing "
+            "auth, dangerous capabilities, weak input validation, injection vectors, "
+            "and transport security issues. No API key required."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["target_url"],
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": (
+                        "URL of the MCP server to scan. "
+                        "SSE: http://host:port/sse  "
+                        "Streamable HTTP: http://host:port/mcp/"
+                    ),
+                },
+                "transport": {
+                    "type": "string",
+                    "enum": ["sse", "http"],
+                    "description": "Transport type (default: auto-detect from URL)",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Connection timeout in seconds (default: 10)",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 60,
+                },
+                "auth_token": {
+                    "type": "string",
+                    "description": "Bearer token for authenticated servers (optional)",
                 },
             },
         },
@@ -902,6 +943,493 @@ Your entire response must be ONLY a JSON object:
 
 
 # ---------------------------------------------------------------------------
+# MCP Server Security Scanner
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate dangerous tool capabilities
+_DANGEROUS_TOOL_PATTERNS = {
+    "CRITICAL": {
+        "names": re.compile(
+            r"(exec|execute|shell|system|run_command|eval|spawn|popen|subprocess)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"(execut\w+ (command|shell|code|script)|run (shell|bash|system)|"
+            r"arbitrary code|system command|shell access)",
+            re.IGNORECASE,
+        ),
+        "label": "Command/Code Execution",
+        "cwe": "CWE-78",
+    },
+    "HIGH_file": {
+        "names": re.compile(
+            r"(write_file|delete_file|remove|unlink|rmdir|create_file|"
+            r"upload|write_to|overwrite|modify_file)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"(write|delete|remove|create|modify|overwrite)\s+(file|director|path)|"
+            r"file\s+system\s+write|upload\s+file",
+            re.IGNORECASE,
+        ),
+        "label": "File System Write/Delete",
+        "cwe": "CWE-73",
+    },
+    "HIGH_network": {
+        "names": re.compile(
+            r"(fetch|http_request|curl|wget|request_url|proxy|forward|"
+            r"send_request|make_request|ssrf)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"(fetch|request|call|connect to)\s+(url|endpoint|api|external|remote)|"
+            r"(http|network)\s+(request|call|access)|proxy|forward\s+request",
+            re.IGNORECASE,
+        ),
+        "label": "Network/SSRF Risk",
+        "cwe": "CWE-918",
+    },
+    "HIGH_data": {
+        "names": re.compile(
+            r"(query|sql|database|db_exec|mongo|redis_exec|raw_query)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"(raw|direct|arbitrary)\s+(sql|query|database)|execute\s+query|"
+            r"database\s+(command|operation|query)",
+            re.IGNORECASE,
+        ),
+        "label": "Direct Database Access",
+        "cwe": "CWE-89",
+    },
+    "MEDIUM_read": {
+        "names": re.compile(
+            r"(read_file|get_file|cat_file|file_content|read_dir|list_dir|"
+            r"list_files|browse|glob|find_files)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"read\s+(file|director|path|content)|file\s+system\s+read|"
+            r"list\s+(director|file|content)|browse\s+(director|file)",
+            re.IGNORECASE,
+        ),
+        "label": "File System Read",
+        "cwe": "CWE-22",
+    },
+    "MEDIUM_env": {
+        "names": re.compile(
+            r"(get_env|environment|set_env|env_var|config|secret)",
+            re.IGNORECASE,
+        ),
+        "descriptions": re.compile(
+            r"environment\s+variable|system\s+(config|setting|environment)|"
+            r"(read|get|set)\s+(env|config|secret)",
+            re.IGNORECASE,
+        ),
+        "label": "Environment/Config Access",
+        "cwe": "CWE-200",
+    },
+}
+
+# Parameters that suggest path traversal or injection risks
+_PARAM_RISK_PATTERNS = {
+    "path_traversal": {
+        "names": re.compile(r"(path|file|dir|folder|filename|filepath|location)", re.I),
+        "risk": "Path traversal — accepts file/directory paths",
+        "cwe": "CWE-22",
+    },
+    "injection": {
+        "names": re.compile(r"(query|sql|command|cmd|code|script|expression|regex|pattern)", re.I),
+        "risk": "Injection vector — accepts query/command/code input",
+        "cwe": "CWE-74",
+    },
+    "url_ssrf": {
+        "names": re.compile(r"(url|uri|endpoint|host|address|target|destination)", re.I),
+        "risk": "SSRF vector — accepts URL/endpoint input",
+        "cwe": "CWE-918",
+    },
+}
+
+
+def _analyze_tool_security(tool) -> list[dict]:
+    """Run security heuristics on a single MCP tool definition."""
+    findings = []
+    name = tool.name
+    desc = tool.description or ""
+    schema = tool.inputSchema or {}
+    props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
+    # 1. Check tool name + description against dangerous patterns
+    for key, pattern in _DANGEROUS_TOOL_PATTERNS.items():
+        severity = key.split("_")[0]
+        if pattern["names"].search(name) or pattern["descriptions"].search(desc):
+            findings.append({
+                "severity": severity,
+                "category": "dangerous_capability",
+                "title": f"Dangerous capability: {pattern['label']}",
+                "detail": (
+                    f"Tool '{name}' appears to provide {pattern['label'].lower()}. "
+                    f"This capability can be abused if the server lacks proper access controls."
+                ),
+                "tool": name,
+                "cwe": pattern["cwe"],
+                "recommendation": (
+                    f"Ensure '{name}' has strict access controls, input validation, "
+                    f"and audit logging. Consider requiring user confirmation for destructive actions."
+                ),
+            })
+
+    # 2. Check individual parameters
+    for param_name, param_schema in props.items():
+        ptype = param_schema.get("type", "string")
+        pdesc = param_schema.get("description", "")
+        has_enum = "enum" in param_schema
+        has_max_length = "maxLength" in param_schema
+        has_pattern = "pattern" in param_schema
+        has_min = "minimum" in param_schema
+        has_max = "maximum" in param_schema
+
+        # Check for risky parameter patterns
+        for risk_key, risk_pattern in _PARAM_RISK_PATTERNS.items():
+            if risk_pattern["names"].search(param_name) or risk_pattern["names"].search(pdesc):
+                # Only flag if there are no constraints
+                if not has_enum and not has_pattern:
+                    findings.append({
+                        "severity": "MEDIUM",
+                        "category": "injection_vector",
+                        "title": f"Unconstrained {risk_key.replace('_', ' ')} parameter",
+                        "detail": (
+                            f"Tool '{name}' parameter '{param_name}' ({ptype}) "
+                            f"accepts {risk_pattern['risk'].lower()} without "
+                            f"enum or pattern constraints."
+                        ),
+                        "tool": name,
+                        "parameter": param_name,
+                        "cwe": risk_pattern["cwe"],
+                        "recommendation": (
+                            f"Add validation: enum for allowed values, pattern regex, "
+                            f"or maxLength/allowlist to constrain '{param_name}'."
+                        ),
+                    })
+
+        # Check for strings without any length limits
+        if ptype == "string" and not has_enum and not has_max_length and not has_pattern:
+            if param_name in required:
+                findings.append({
+                    "severity": "LOW",
+                    "category": "weak_validation",
+                    "title": f"No length limit on required string parameter",
+                    "detail": (
+                        f"Tool '{name}' required parameter '{param_name}' has no "
+                        f"maxLength, enum, or pattern constraint."
+                    ),
+                    "tool": name,
+                    "parameter": param_name,
+                    "cwe": "CWE-20",
+                    "recommendation": "Add maxLength to prevent abuse via oversized input.",
+                })
+
+        # Check for integers without bounds
+        if ptype == "integer" and not has_min and not has_max:
+            findings.append({
+                "severity": "LOW",
+                "category": "weak_validation",
+                "title": f"Unbounded integer parameter",
+                "detail": (
+                    f"Tool '{name}' parameter '{param_name}' has no min/max bounds."
+                ),
+                "tool": name,
+                "parameter": param_name,
+                "cwe": "CWE-20",
+                "recommendation": "Add minimum and maximum to prevent abuse.",
+            })
+
+    # 3. Check for missing description (makes tools harder to audit)
+    if not desc or len(desc) < 10:
+        findings.append({
+            "severity": "LOW",
+            "category": "poor_documentation",
+            "title": "Tool has missing or very short description",
+            "detail": (
+                f"Tool '{name}' has a description of only {len(desc)} characters. "
+                f"Poor documentation makes security auditing difficult."
+            ),
+            "tool": name,
+            "cwe": "CWE-1059",
+            "recommendation": "Add a clear description explaining what the tool does and its security implications.",
+        })
+
+    return findings
+
+
+def _analyze_resource_security(resource) -> list[dict]:
+    """Run security heuristics on an MCP resource."""
+    findings = []
+    uri = str(resource.uri) if resource.uri else ""
+    name = resource.name or ""
+    desc = resource.description or ""
+
+    sensitive_patterns = re.compile(
+        r"(password|secret|key|token|credential|private|auth|session|cookie|"
+        r"\.env|config|database|backup|dump|log|shadow|passwd|id_rsa|\.pem)",
+        re.IGNORECASE,
+    )
+
+    file_patterns = re.compile(r"^file://|^/|\\\\", re.IGNORECASE)
+
+    if sensitive_patterns.search(uri) or sensitive_patterns.search(name):
+        findings.append({
+            "severity": "HIGH",
+            "category": "sensitive_resource",
+            "title": "Resource with sensitive name or URI",
+            "detail": f"Resource '{name}' (URI: {uri}) may expose sensitive data.",
+            "resource": name,
+            "uri": uri,
+            "cwe": "CWE-200",
+            "recommendation": "Restrict access to sensitive resources with RBAC or authentication.",
+        })
+
+    if file_patterns.search(uri):
+        findings.append({
+            "severity": "MEDIUM",
+            "category": "file_system_resource",
+            "title": "File system resource exposed",
+            "detail": f"Resource '{name}' exposes file system access via URI: {uri}",
+            "resource": name,
+            "uri": uri,
+            "cwe": "CWE-22",
+            "recommendation": "Ensure file system resources are scoped to safe directories with no traversal.",
+        })
+
+    return findings
+
+
+async def _connect_and_scan(target_url: str, transport: str, timeout: int,
+                            auth_token: str | None) -> dict:
+    """Connect to a target MCP server and run security analysis."""
+    import httpx
+
+    results: dict[str, Any] = {
+        "target": target_url,
+        "transport": transport,
+        "findings": [],
+        "server_info": {},
+        "tools": [],
+        "resources": [],
+        "prompts": [],
+    }
+    findings = results["findings"]
+
+    # --- Transport security check ---
+    is_https = target_url.startswith("https://")
+    if not is_https:
+        findings.append({
+            "severity": "MEDIUM",
+            "category": "transport_security",
+            "title": "Unencrypted transport (HTTP)",
+            "detail": f"Server at {target_url} uses plain HTTP. All MCP traffic including tool arguments and results is transmitted in cleartext.",
+            "cwe": "CWE-319",
+            "recommendation": "Use HTTPS with a valid TLS certificate for production deployments.",
+        })
+
+    # --- Auth check: try connecting without auth first ---
+    auth_required = False
+    if not auth_token:
+        try:
+            health_url = target_url.rsplit("/", 1)[0] + "/health"
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(health_url, timeout=float(timeout))
+                if resp.status_code == 200:
+                    results["server_info"]["health"] = resp.json()
+        except Exception:
+            pass
+
+    # --- Connect via MCP protocol ---
+    headers = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    try:
+        if transport == "sse":
+            from mcp.client.sse import sse_client
+            ctx = sse_client(target_url, headers=headers, timeout=float(timeout))
+        else:
+            from mcp.client.streamable_http import streamablehttp_client
+            ctx = streamablehttp_client(target_url, headers=headers, timeout=float(timeout))
+
+        read_stream, write_stream = await ctx.__aenter__()
+
+        from mcp import ClientSession
+        session = ClientSession(read_stream, write_stream)
+        await session.__aenter__()
+        await session.initialize()
+
+    except Exception as e:
+        err_msg = f"{type(e).__name__}: {e}"
+        if "401" in err_msg or "403" in err_msg or "Unauthorized" in err_msg:
+            auth_required = True
+            results["auth_required"] = True
+            findings.append({
+                "severity": "INFO",
+                "category": "authentication",
+                "title": "Server requires authentication",
+                "detail": "Connection was rejected — server enforces authentication. This is good.",
+                "cwe": "N/A",
+                "recommendation": "N/A — authentication is enforced.",
+            })
+            return results
+        else:
+            return {"error": f"Connection failed: {err_msg}", "target": target_url}
+
+    try:
+        # --- Check if auth was NOT required ---
+        if not auth_token:
+            findings.append({
+                "severity": "HIGH",
+                "category": "authentication",
+                "title": "No authentication required",
+                "detail": (
+                    "Successfully connected to MCP server without any authentication. "
+                    "Any client on the network can access all tools and resources."
+                ),
+                "cwe": "CWE-306",
+                "recommendation": "Enable bearer token authentication or mutual TLS.",
+            })
+
+        # --- Server capabilities ---
+        caps = session.get_server_capabilities()
+        results["server_info"]["capabilities"] = {}
+        if caps:
+            if caps.tools:
+                results["server_info"]["capabilities"]["tools"] = True
+            if caps.resources:
+                results["server_info"]["capabilities"]["resources"] = True
+            if caps.prompts:
+                results["server_info"]["capabilities"]["prompts"] = True
+            if caps.experimental:
+                results["server_info"]["capabilities"]["experimental"] = True
+                findings.append({
+                    "severity": "LOW",
+                    "category": "experimental_features",
+                    "title": "Experimental capabilities enabled",
+                    "detail": "Server exposes experimental MCP capabilities which may be unstable or insecure.",
+                    "cwe": "CWE-1104",
+                    "recommendation": "Disable experimental features in production.",
+                })
+
+        # --- Enumerate and analyze tools ---
+        try:
+            tools_result = await session.list_tools()
+            for t in tools_result.tools:
+                tool_info = {
+                    "name": t.name,
+                    "description": (t.description or "")[:200],
+                    "parameters": list((t.inputSchema or {}).get("properties", {}).keys()),
+                }
+                results["tools"].append(tool_info)
+                findings.extend(_analyze_tool_security(t))
+        except Exception as e:
+            results["tools_error"] = str(e)
+
+        # --- Enumerate and analyze resources ---
+        try:
+            resources_result = await session.list_resources()
+            for r in resources_result.resources:
+                res_info = {
+                    "name": r.name,
+                    "uri": str(r.uri) if r.uri else "",
+                    "description": (r.description or "")[:200],
+                }
+                results["resources"].append(res_info)
+                findings.extend(_analyze_resource_security(r))
+        except Exception:
+            pass  # Resources not supported — that's fine
+
+        # --- Enumerate prompts ---
+        try:
+            prompts_result = await session.list_prompts()
+            for p in prompts_result.prompts:
+                results["prompts"].append({
+                    "name": p.name,
+                    "description": (p.description or "")[:200],
+                })
+        except Exception:
+            pass  # Prompts not supported — that's fine
+
+        # --- Summary statistics ---
+        sev_counts = {}
+        for f in findings:
+            s = f.get("severity", "INFO")
+            sev_counts[s] = sev_counts.get(s, 0) + 1
+
+        results["summary"] = {
+            "total_tools": len(results["tools"]),
+            "total_resources": len(results["resources"]),
+            "total_prompts": len(results["prompts"]),
+            "total_findings": len(findings),
+            "by_severity": sev_counts,
+            "risk_score": _calculate_risk_score(findings),
+        }
+
+    finally:
+        try:
+            await session.__aexit__(None, None, None)
+            await ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+
+    return results
+
+
+def _calculate_risk_score(findings: list[dict]) -> str:
+    """Calculate an overall risk score from findings."""
+    weights = {"CRITICAL": 10, "HIGH": 5, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+    score = sum(weights.get(f.get("severity", "INFO"), 0) for f in findings)
+    if score >= 20:
+        return "CRITICAL"
+    elif score >= 10:
+        return "HIGH"
+    elif score >= 5:
+        return "MEDIUM"
+    elif score >= 1:
+        return "LOW"
+    return "CLEAN"
+
+
+async def handle_scan_mcp(arguments: dict[str, Any]) -> str:
+    """Security-scan a remote MCP server."""
+    target_url = arguments["target_url"].strip()
+    if not target_url or len(target_url) > MAX_PATH_LENGTH:
+        raise ValueError(f"target_url must be 1-{MAX_PATH_LENGTH} characters")
+
+    # Basic URL validation
+    if not target_url.startswith(("http://", "https://")):
+        raise ValueError("target_url must start with http:// or https://")
+
+    timeout = min(arguments.get("timeout", 10), 60)
+    auth_token = arguments.get("auth_token")
+
+    # Auto-detect transport from URL
+    transport = arguments.get("transport")
+    if not transport:
+        if "/sse" in target_url:
+            transport = "sse"
+        else:
+            transport = "http"
+
+    try:
+        results = await _connect_and_scan(target_url, transport, timeout, auth_token)
+    except Exception as e:
+        return json.dumps({
+            "error": f"Scan failed: {type(e).__name__}: {e}",
+            "target": target_url,
+        })
+
+    return json.dumps(results, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
@@ -915,4 +1443,5 @@ TOOL_HANDLERS = {
     "scan_file": handle_scan_file,
     "explain_finding": handle_explain_finding,
     "get_fix": handle_get_fix,
+    "scan_mcp": handle_scan_mcp,
 }

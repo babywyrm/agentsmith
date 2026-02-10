@@ -46,6 +46,12 @@ The server starts on **port 2266** by default with both SSE and Streamable HTTP 
 | `summarize_results` | Summarize existing scan results with severity counts, cost, and artifacts |
 | `list_findings` | Browse findings filtered by severity, source, with pagination |
 
+### MCP Server Security
+
+| Tool | Description |
+|------|-------------|
+| `scan_mcp` | Security-scan a remote MCP server: enumerate tools/resources, check auth, analyze for dangerous capabilities and injection vectors |
+
 ### AI-Powered (requires `CLAUDE_API_KEY` or Bedrock)
 
 | Tool | Description |
@@ -209,7 +215,8 @@ mcp_server/server.py  (Starlette + uvicorn)
             ├── list_findings     → output/ JSON files
             ├── list_presets      → lib/config.py
             ├── explain_finding   → Claude AI (detailed vulnerability explanation)
-            └── get_fix           → Claude AI (code fix generation)
+            ├── get_fix           → Claude AI (code fix generation)
+            └── scan_mcp          → MCP client (connect + enumerate + analyze)
 ```
 
 ## Examples
@@ -237,6 +244,7 @@ curl -X POST http://localhost:2266/mcp/ \
 python3 -m mcp_server.test_client interact
 
 mcp> scan_file {"file_path": "/path/to/file.py"}
+mcp> scan_mcp {"target_url": "http://localhost:2266/sse"}
 mcp> explain_finding {"file_path": "/path/to/file.py", "description": "SQL injection", "line_number": 42}
 mcp> get_fix {"file_path": "/path/to/file.py", "description": "hardcoded password on line 15"}
 ```

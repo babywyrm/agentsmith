@@ -686,6 +686,53 @@ def _print_result_detail(tool_name: str, data: dict):
         if test:
             print(f"    {c('Test:', BOLD)}       {test}...")
 
+    elif tool_name == "scan_mcp":
+        summary = data.get("summary", {})
+        risk = summary.get("risk_score", "?")
+        risk_color = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN, "CLEAN": GREEN}.get(risk, DIM)
+        total = summary.get("total_findings", 0)
+        by_sev = summary.get("by_severity", {})
+
+        print(f"    {c('Risk Score:', BOLD)}  {c(risk, risk_color)}")
+        print(f"    {c('Findings:', BOLD)}    {total}")
+        if by_sev:
+            parts = []
+            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
+                if sev in by_sev:
+                    clr = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN, "INFO": DIM}.get(sev, DIM)
+                    parts.append(f"{c(sev, clr)}: {by_sev[sev]}")
+            print(f"    {c('Severity:', BOLD)}    {', '.join(parts)}")
+
+        print(f"    {c('Tools:', BOLD)}       {summary.get('total_tools', 0)}")
+        print(f"    {c('Resources:', BOLD)}   {summary.get('total_resources', 0)}")
+        print(f"    {c('Prompts:', BOLD)}     {summary.get('total_prompts', 0)}")
+
+        # Show top findings
+        findings = data.get("findings", [])
+        if findings:
+            sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+            findings.sort(key=lambda f: sev_order.get(f.get("severity", "INFO"), 5))
+            print(f"    {c('Top findings:', BOLD)}")
+            for f in findings[:8]:
+                sev = f.get("severity", "?")
+                clr = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN}.get(sev, DIM)
+                title = f.get("title", "?")[:60]
+                tool = f.get("tool", f.get("resource", ""))
+                loc = f" ({tool})" if tool else ""
+                print(f"      {c(f'[{sev}]', clr):>22} {title}{c(loc, DIM)}")
+            if len(findings) > 8:
+                print(f"      {c(f'... and {len(findings) - 8} more', DIM)}")
+
+        # Show enumerated tools
+        tools_list = data.get("tools", [])
+        if tools_list:
+            print(f"    {c('Exposed tools:', BOLD)}")
+            for t in tools_list[:6]:
+                params = ", ".join(t.get("parameters", []))
+                print(f"      {c('>', CYAN)} {t['name']}({c(params, DIM)})")
+            if len(tools_list) > 6:
+                print(f"      {c(f'... and {len(tools_list) - 6} more', DIM)}")
+
     elif tool_name == "scan_hybrid":
         status = data.get("status", "?")
         total = data.get("total_findings", "?")
