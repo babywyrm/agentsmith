@@ -4,14 +4,23 @@ Model Context Protocol (MCP) server that exposes Agent Smith's security scanning
 
 ## Quick Start
 
+**Recommended:** One-command setup + server + interactive client:
+
 ```bash
-# Install MCP dependencies
+./scripts/run_mcp_shell.sh
+# At mcp> prompt: scan_hybrid {"preset": "mcp"}, scan_mcp {"target_url": "..."}, etc.
+```
+
+**Manual:** Start server only (for Cursor/IDE integration):
+
+```bash
 pip install -r mcp_server/requirements.txt
-
-# Start the server (dev mode, no auth)
 python3 -m mcp_server --no-auth
+```
 
-# Start with authentication (production)
+**Production:** Use auth token:
+
+```bash
 export AGENTSMITH_MCP_TOKEN=your-secret-token
 python3 -m mcp_server
 ```

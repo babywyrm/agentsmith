@@ -20,7 +20,7 @@
 - **Precise Location Tracking**: File paths and line numbers in all outputs
 - **Unified CLI**: Single entry point (`agentsmith.py`) for all modes
 - **Auto-loaded Rules**: 70+ OWASP rules loaded automatically from `rules/` directory
-- **Preset System**: 6 optimized presets for common workflows (`--preset ctf`, `--preset pentest`, etc.)
+- **Preset System**: 7 optimized presets for common workflows (`--preset mcp`, `--preset ctf`, `--preset pentest`, etc.)
 - **Smart Defaults**: Auto-prioritization, auto-deduplication, and smart top-n
 
 ## Features
@@ -204,7 +204,7 @@ python3 orchestrator.py /path/to/repo ./scanner \
 
 **Key Options:**
 - `--profile`: AI analysis profiles (comma-separated, default: owasp)
-- `--preset`: Use a preset configuration (quick, ctf, ctf-fast, security-audit, pentest, compliance)
+- `--preset`: Use a preset configuration (mcp, quick, ctf, ctf-fast, security-audit, pentest, compliance)
 - `--prioritize`: Enable AI prioritization (HIGHLY RECOMMENDED for 50+ files)
 - `--prioritize-top N`: Number of files to prioritize (default: 15)
 - `--question "..."`: Guides prioritization (be specific!)
@@ -225,6 +225,9 @@ python3 orchestrator.py /path/to/repo ./scanner \
 One-command configurations for common workflows:
 
 ```bash
+# MCP-optimized (2 files, ~1 min — for MCP shell / Cursor)
+python3 orchestrator.py /path/to/repo ./scanner --preset mcp
+
 # Quick scan (fast, minimal output)
 python3 orchestrator.py /path/to/repo ./scanner --preset quick
 
@@ -428,20 +431,25 @@ agentsmith/
 ├── scripts/                   # Setup & utility scripts
 │   ├── setup.sh               # Full setup (Go + Python)
 │   ├── activate.sh            # Quick environment activation
+│   ├── run_mcp_shell.sh       # One-command: setup + MCP server + interactive client
+│   ├── run_mcp_tests.sh       # Start MCP server if needed, run test suite
+│   ├── run_trufflehog.sh      # TruffleHog secrets scan (pre-commit check)
 │   └── setup_test_targets.sh  # Clone vulnerable test targets
 │
-├── tests/                     # Test suite (190+ tests)
+├── tests/                     # Test suite (223 tests)
 │   ├── test_dvmcp.sh          # DVMCP MCP security scan suite
 │   └── test_targets/          # Vulnerable apps (gitignored)
 │       ├── DVWA/
 │       ├── DVMCP/
 │       └── ...
 │
-├── docs/                      # Documentation
-│   ├── MCP_SCANNING.md        # MCP scanning guide & walkthrough
-│   ├── CHANGELOG.md           # Release changelog
-│   ├── USE_CASES.md           # Usage examples & workflows
-│   └── ...
+├── docs/                      # Documentation (see docs/README.md for index)
+│   ├── USE_CASES.md           # Simple to complex workflows
+│   ├── ADVANCED_EXAMPLES.md  # Multi-profile, deduplication
+│   ├── MCP_SCANNING.md       # scan_mcp, DVMCP walkthrough
+│   ├── PROFILES.md           # AI profile guide
+│   ├── REVIEW_STATE.md       # Caching, resume, checkpoints
+│   └── CHANGELOG.md          # Release history
 │
 ├── requirements.txt           # Python dependencies
 ├── readme.md                  # This file
@@ -511,18 +519,28 @@ API Usage Summary
 - Resume reviews to maximize cache hits
 - Use `--no-cache` to force fresh API calls
 
+## Intended Use Cases
+
+| Use Case | Command | When |
+|----------|---------|------|
+| **Hybrid scan (CLI)** | `python3 orchestrator.py /path ./scanner --preset quick` | Full static + AI analysis from terminal |
+| **MCP shell (interactive)** | `./scripts/run_mcp_shell.sh` → `scan_hybrid`, `scan_mcp`, etc. at `mcp>` | Cursor integration, ad-hoc scans, MCP server auditing |
+| **Static only** | `python3 agentsmith.py static . --severity HIGH` | CI/CD, no API key |
+| **AI deep dive** | `python3 agentsmith.py analyze . "question" --prioritize` | Comprehensive review with review state |
+
 ## Tips for Effective Scanning
 
 1. **For CI/CD**: Use `static` mode with `--severity HIGH` for fast, free checks
 2. **For Deep Reviews**: Use `analyze` mode with `--enable-review-state`
 3. **For CTF Challenges**: Use `ctf` mode for quick vulnerability discovery
-4. **For Comprehensive Analysis**: Use `hybrid` mode with `--prioritize` (RECOMMENDED)
-5. **Save Time & Cost**: Always use `--prioritize` for repos with 50+ files
-6. **Be Specific**: Use detailed `--question` for better prioritization results
-7. **Get Actionable Results**: Combine `--generate-payloads` + `--annotate-code` for full context
-8. **Start Focused**: Begin with `--severity HIGH` to tackle critical issues first
-9. **Reduce Noise**: Use `--ignore` or `.scannerignore` to exclude test files
-10. **Resume Reviews**: Use `--resume-last` to continue where you left off
+4. **For Comprehensive Analysis**: Use `orchestrator.py` or `agentsmith.py hybrid` with `--prioritize` (RECOMMENDED)
+5. **For MCP/Cursor**: Use `./scripts/run_mcp_shell.sh` — scan repos and MCP servers from the interactive shell
+6. **Save Time & Cost**: Always use `--prioritize` for repos with 50+ files
+7. **Be Specific**: Use detailed `--question` for better prioritization results
+8. **Get Actionable Results**: Combine `--generate-payloads` + `--annotate-code` for full context
+9. **Start Focused**: Begin with `--severity HIGH` to tackle critical issues first
+10. **Reduce Noise**: Use `--ignore` or `.scannerignore` to exclude test files
+11. **Resume Reviews**: Use `--resume-last` to continue where you left off
 
 ### Understanding Prioritization
 
@@ -624,7 +642,7 @@ export AGENTSMITH_PROVIDER=bedrock
 export AWS_REGION=us-east-1
 ```
 
-See [mcp_server/README.md](mcp_server/README.md) for full MCP documentation.
+See [mcp_server/README.md](mcp_server/README.md) for full MCP documentation. [docs/README.md](docs/README.md) indexes all docs.
 
 ## Architecture
 
@@ -667,6 +685,9 @@ git status
 
 # Verify no secrets in staged files
 git diff --cached | grep -i "api.*key\|secret\|password" || echo "No secrets found"
+
+# TruffleHog secrets scan (excludes .venv, output, test_targets)
+./scripts/run_trufflehog.sh
 
 # Check for large output files
 git status --porcelain | grep -E "(output|report|findings)" || echo "No output files staged"

@@ -2,6 +2,8 @@
 
 Practical examples for common security analysis scenarios.
 
+**See also:** [ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md) (multi-profile, deduplication) · [MCP_SCANNING.md](MCP_SCANNING.md) (scan MCP servers) · [PROFILES.md](PROFILES.md) (AI profiles)
+
 ## 🚀 Simple Use Cases (5 minutes or less)
 
 ### Use Case 1: Quick Security Check (No API Key)
@@ -517,7 +519,23 @@ cat output/*/attack_chains.json | jq '.[] | select(.exploitability_score >= 9)'
 See:
 - [README.md](README.md) - Complete feature documentation
 - [ADVANCED_EXAMPLES.md](docs/ADVANCED_EXAMPLES.md) - Complex multi-profile workflows
-- [PROFILES.md](docs/PROFILES.md) - AI profile descriptions
+- [PROFILES.md](PROFILES.md) - AI profile descriptions
+- [MCP_SCANNING.md](MCP_SCANNING.md) - Security-scan MCP servers
+
+### MCP Shell (Interactive)
+
+**Scenario:** You use Cursor or want to scan from an interactive shell.
+
+```bash
+./scripts/run_mcp_shell.sh
+# At mcp> prompt:
+scan_hybrid {"preset": "mcp"}                    # 2 files, ~1 min
+scan_mcp {"target_url": "http://localhost:9001/sse"}  # Scan DVMCP
+summary
+findings 20
+```
+
+See [mcp_server/README.md](../mcp_server/README.md) and [MCP_SCANNING.md](MCP_SCANNING.md).
 
 ## 🚀 Quick Start
 

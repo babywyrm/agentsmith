@@ -1,0 +1,10 @@
+# TruffleHog path exclusions (regex, one per line)
+# Excludes: deps, output, test_targets (intentionally vulnerable apps)
+^\.venv/
+output/
+test_targets/
+\.git/
+__pycache__/
+\.pyc$
+\.so$
+node_modules/

@@ -2,6 +2,8 @@
 
 Comprehensive examples demonstrating multi-profile scans, deduplication, and advanced workflows.
 
+**See also:** [USE_CASES.md](USE_CASES.md) (simple to complex) · [MCP_SCANNING.md](MCP_SCANNING.md) (scan MCP servers)
+
 **⚠️ Note: Deduplication is OPT-IN only!**
 
 Deduplication only runs if you explicitly enable it with the `--deduplicate` flag. By default, all findings from all profiles are shown separately, giving you full visibility into what each profile discovered.

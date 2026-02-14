@@ -1,0 +1,21 @@
+# Agent Smith Documentation
+
+Index of documentation in this directory.
+
+| Document | Purpose |
+|----------|---------|
+| [USE_CASES.md](USE_CASES.md) | Practical examples: simple to complex workflows (static, CTF, hybrid, compliance) |
+| [ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md) | Multi-profile scans, deduplication, advanced orchestrator workflows |
+| [PROFILES.md](PROFILES.md) | AI profile guide: owasp, ctf, soc2, compliance, code_review, etc. |
+| [MCP_SCANNING.md](MCP_SCANNING.md) | `scan_mcp` tool: security-scan MCP servers, DVMCP walkthrough, heuristics |
+| [REVIEW_STATE.md](REVIEW_STATE.md) | Review state management, caching, resume, checkpoints |
+| [DEDUPLICATION_FLOW.md](DEDUPLICATION_FLOW.md) | How deduplication works (opt-in, flow, merge strategies) |
+| [AGENTSMITH_CONTEXT_README.md](AGENTSMITH_CONTEXT_README.md) | Context library API: `ReviewContextManager`, caching, cost tracking |
+| [CHANGELOG.md](CHANGELOG.md) | Release history and changes |
+
+## Quick Links
+
+- **Main README**: [../readme.md](../readme.md)
+- **MCP Server**: [../mcp_server/README.md](../mcp_server/README.md)
+- **MCP Roadmap**: [../mcp_server/ROADMAP.md](../mcp_server/ROADMAP.md)
+- **Tests**: [../tests/README.md](../tests/README.md)

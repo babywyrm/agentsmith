@@ -1,4 +1,10 @@
+# =============================================================================
+# Agent Smith .gitignore — comprehensive for repo, tests, and tooling
+# =============================================================================
+
+# -----------------------------------------------------------------------------
 # Go build artifacts
+# -----------------------------------------------------------------------------
 *.exe
 *.exe~
 *.dll
@@ -7,18 +13,42 @@
 *.test
 *.out
 scanner
-*output*
-# agentsmith cache and review state
+/vendor/
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Agent Smith cache and review state
+# -----------------------------------------------------------------------------
 .agentsmith_cache/
 *.agentsmith.cache*
+.gowasp_cache/
 
-# Test targets (large repos, don't commit)
-*WebGoat*
-*DVWA*
-*juice-*
-test_targets/
-
-# Analysis outputs and reports (NEVER commit these - may contain sensitive data)
+# -----------------------------------------------------------------------------
+# Analysis outputs and reports (NEVER commit — may contain sensitive data)
+# -----------------------------------------------------------------------------
 output/
 test-reports/
 security-reports/
@@ -36,72 +66,44 @@ security-reports/
 **/tech_stack.json
 **/cost_tracking.json
 output.log
+
+# -----------------------------------------------------------------------------
+# Test targets (large, intentionally vulnerable — clone separately)
+# -----------------------------------------------------------------------------
+test_targets/
+*WebGoat*
+*DVWA*
+*juice-*
+
+# -----------------------------------------------------------------------------
+# Logs and temp files
+# -----------------------------------------------------------------------------
 *.log
+.mcp_server.log
+*.bak
+*.tmp
+*.orig
+*.old
+*.prof
+*.testresult
+*.coverprofile
+coverage.out
 
-# Output binaries
-/bin/
-/build/
-/dist/
-
-# Go modules
-/vendor/
-
-# IDE/editor files
+# -----------------------------------------------------------------------------
+# IDE and editor
+# -----------------------------------------------------------------------------
 .vscode/
 .idea/
 .cursor/
-# Keep MCP config for collaborators
 !.cursor/mcp.json
 *.swp
 *.swo
 *.swn
 *~
 
-# Logs and dumps
-*.log
-*.bak
-*.tmp
-*.orig
-*.old
-*.DS_Store
-
-# Coverage
-*.coverprofile
-coverage.out
-
-# Test cache
-*.testresult
-*.prof
-
-# Python cache and bytecode
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.venv/
-venv/
-ENV/
-env/
-
-# Legacy cache directories (kept for cleanup)
-.gowasp_cache/
-.gowasp_cache
-
-# Generated files
-gen/
-*.pb.go
-*.pb.validate.go
-*.pb.gw.go
-
-# Local env/config (NEVER commit secrets!)
+# -----------------------------------------------------------------------------
+# Local env and secrets (NEVER commit)
+# -----------------------------------------------------------------------------
 .env
 .env.*
 .local
@@ -112,20 +114,26 @@ gen/
 *secret*
 *password*
 *credentials*
-
-# API keys and secrets (check for accidental commits)
 **/CLAUDE_API_KEY*
 **/*api*key*
-**/*secret*
 
-# Archive directory (old/unused code)
+# -----------------------------------------------------------------------------
+# Generated and archive
+# -----------------------------------------------------------------------------
+gen/
+*.pb.go
+*.pb.validate.go
+*.pb.gw.go
 __archive/
 
-# Setup scripts (in scripts/ directory, tracked)
-# scripts/setup.sh, scripts/activate.sh, scripts/setup_test_targets.sh
+# -----------------------------------------------------------------------------
+# Node (if any JS tooling)
+# -----------------------------------------------------------------------------
+node_modules/
 
-# OS-specific
+# -----------------------------------------------------------------------------
+# OS
+# -----------------------------------------------------------------------------
+.DS_Store
 Thumbs.db
 ehthumbs.db
-.DS_Store
-

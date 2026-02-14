@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-01-24
+## [Unreleased] - 2026-02
+
+### Added
+
+- **MCP preset** (`--preset mcp`): 2 files, no payloads/annotations, ~1 min — for MCP shell and Cursor integration
+- **MCP shell docs**: Tail log (`tail -f .mcp_server.log`), debug mode, `scan_mcp` from interactive shell
+- **docs/README.md**: Index of all documentation
+
+### Changed
+
+- Preset count: 7 (added `mcp`)
+- Test count: 223 (was 190+)
+
+## [1.x] - 2026-01-24
 
 ### Added - Phase 4: Enhanced Tech Stack Detection & Testing
 
