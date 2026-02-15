@@ -1044,14 +1044,29 @@ async def mode_interact(url: str, repo_path: str | None = None):
 
         last_result = None
         last_output_dir = None
+        last_tool_name = None
+        last_target_url = None  # for scan_mcp
         verbose = False
 
         _BUILTINS = (
             "help", "quit", "exit", "q", "scan", "summary", "findings",
             "annotations", "payloads", "everything", "verbose", "repo",
-            "tools", "list_presets", "last", "status", "state",
+            "tools", "list_presets", "last", "status", "state", "dvmcp",
         )
         _completion_list = sorted(set(_BUILTINS) | set(tools.keys()))
+
+        DVMCP_CHALLENGES = [
+            (1, "Basic Prompt Injection"),
+            (2, "Tool Poisoning"),
+            (3, "Excessive Permission Scope"),
+            (4, "Rug Pull Attack"),
+            (5, "Tool Shadowing"),
+            (6, "Indirect Prompt Injection"),
+            (7, "Token Theft"),
+            (8, "Malicious Code Execution"),
+            (9, "Remote Access Control"),
+            (10, "Multi-Vector Attack"),
+        ]
 
         def _complete(text: str, state: int):
             if not text:
@@ -1097,6 +1112,7 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 print(f"    {c('<tool_name> {json}', CYAN)}    Call with inline JSON args")
                 print(f"    {c('last', CYAN)}                  Show last result (full JSON)")
                 print(f"    {c('status', CYAN)} / {c('state', CYAN)}        Show session config (server, repo, verbose, last output)")
+                print(f"    {c('dvmcp', CYAN)}                 Scan all 10 DVMCP challenges (ports 9001–9010)")
                 print(f"    {c('help', CYAN)}                  Show this help")
                 print(f"    {c('quit', CYAN)}                  Exit (or Ctrl+C)")
                 print(f"  {c('Long output', DIM)} is paged (less); set AGENTSMITH_MCP_NOPAGER=1 to disable.")
@@ -1106,7 +1122,8 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 print(f'    scan_static {{"severity": "HIGH"}}   # repo_path auto-filled')
                 print(f'    scan_hybrid {{"preset": "mcp"}}              # 2 files, ~1 min')
                 print(f'    scan_hybrid {{"preset": "quick"}}             # 10 files')
-                print(f'    scan_mcp {{"target_url": "http://localhost:9001/sse"}}')
+                print(f'    scan_mcp 9001   or   scan_mcp {{"target_url": "http://localhost:9001/sse"}}')
+                print(f'    dvmcp                     # sweep all 10 DVMCP challenges')
                 print(f'    summary')
                 print(f'    findings 50')
                 print()
@@ -1141,6 +1158,10 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 print(f"    Default repo:  {c(repo_path or '(none)', DIM)}")
                 print(f"    Verbose:       {c('on' if verbose else 'off', DIM)}")
                 print(f"    Last output:   {c(last_output_dir or '(none)', DIM)}")
+                if last_tool_name:
+                    print(f"    Last tool:     {c(last_tool_name, CYAN)}")
+                if last_target_url:
+                    print(f"    Last target:   {c(last_target_url, DIM)}")
                 print(f"    Tools:         {len(tools)}")
                 print()
                 continue
@@ -1360,9 +1381,48 @@ async def mode_interact(url: str, repo_path: str | None = None):
 
             if line == "last":
                 if last_result is not None:
-                    print(json.dumps(last_result, indent=2, default=str))
+                    if last_tool_name and last_target_url:
+                        print(f"  {c('Last result:', DIM)} {last_tool_name} → {last_target_url}")
+                    with _paged_output():
+                        for ln in json.dumps(last_result, indent=2, default=str).splitlines():
+                            print(_colorize_json_line(ln))
                 else:
                     print(f"  {c('No previous result', DIM)}")
+                print()
+                continue
+
+            if line == "dvmcp":
+                if "scan_mcp" not in tools:
+                    print(f"  {c('scan_mcp not available', RED)}")
+                    print()
+                    continue
+                print(f"  {c('DVMCP sweep', BOLD)} — scanning challenges 1–10 (ports 9001–9010)")
+                print()
+                risk_colors = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN, "CLEAN": GREEN}
+                for num, name in DVMCP_CHALLENGES:
+                    port = 9000 + num
+                    target = f"http://localhost:{port}/sse"
+                    spinner.start(f"Challenge {num}: {name}...")
+                    t0 = time.monotonic()
+                    try:
+                        result = await session.call_tool("scan_mcp", {"target_url": target})
+                        elapsed_ms = (time.monotonic() - t0) * 1000
+                        spinner.stop()
+                        data = json.loads(result.content[0].text)
+                        last_result = data
+                        last_tool_name = "scan_mcp"
+                        last_target_url = target
+                        if "error" in data:
+                            print(f"  {num:>2}. {name[:35]:<35} {c('FAIL', RED)}: {data['error'][:50]}")
+                        else:
+                            risk = data.get("summary", {}).get("risk_score", "?")
+                            clr = risk_colors.get(risk, DIM)
+                            print(f"  {num:>2}. {name[:35]:<35} → {c(risk, clr)} {c(f'({elapsed_ms:.0f}ms)', DIM)}")
+                    except Exception as e:
+                        spinner.stop()
+                        print(f"  {num:>2}. {name[:35]:<35} {c('FAIL', RED)}: {e}")
+                print()
+                print(f"  {c('Done', GREEN)}. Use {c('last', CYAN)} for full result of last scan.")
                 print()
                 continue
 
@@ -1380,11 +1440,63 @@ async def mode_interact(url: str, repo_path: str | None = None):
             # Build arguments
             tool = tools[tool_name]
             if inline_args:
-                try:
-                    args = json.loads(inline_args)
-                except json.JSONDecodeError:
-                    print(f"  {c('Invalid JSON', RED)}: {inline_args}")
-                    continue
+                # scan_mcp shorthand: "9001" or "9001 9002 9008" → localhost ports
+                if tool_name == "scan_mcp" and not inline_args.strip().startswith("{"):
+                    parts = inline_args.split()
+                    ports = []
+                    for p in parts:
+                        try:
+                            port = int(p)
+                            if 1 <= port <= 65535:
+                                ports.append(port)
+                            else:
+                                print(f"  {c('Invalid port', RED)}: {p} (use 1-65535)")
+                                ports = []
+                                break
+                        except ValueError:
+                            print(f"  {c('Invalid JSON or port', RED)}: {inline_args}")
+                            print(f"  Use {c('scan_mcp 9001', CYAN)} or {c('scan_mcp {\"target_url\": \"...\"}', CYAN)}")
+                            ports = []
+                            break
+                    if not ports:
+                        continue
+                    if len(ports) == 1:
+                        args = {"target_url": f"http://localhost:{ports[0]}/sse"}
+                        print(f"  {c('(shorthand)', DIM)} → {args['target_url']}")
+                    else:
+                        # Multiple ports: run each scan in sequence
+                        for i, port in enumerate(ports):
+                            target = f"http://localhost:{port}/sse"
+                            print(f"  {c('Calling', DIM)}: scan_mcp {c(f'({i+1}/{len(ports)})', DIM)} {target}")
+                            spinner.start(f"Scanning {target}...")
+                            t0 = time.monotonic()
+                            try:
+                                result = await session.call_tool("scan_mcp", {"target_url": target})
+                                elapsed_ms = (time.monotonic() - t0) * 1000
+                                spinner.stop()
+                                data = json.loads(result.content[0].text)
+                                last_result = data
+                                last_tool_name = "scan_mcp"
+                                last_target_url = target
+                                if "error" in data:
+                                    print(f"    {c('Error', YELLOW)}: {data['error']}")
+                                else:
+                                    risk = data.get("summary", {}).get("risk_score", "?")
+                                    risk_color = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN}.get(risk, DIM)
+                                    print(f"    {c('Risk', BOLD)}: {c(risk, risk_color)} {c(f'({elapsed_ms:.0f}ms)', DIM)}")
+                                    with _paged_output():
+                                        _print_result_detail("scan_mcp", data, verbose=verbose)
+                            except Exception as e:
+                                spinner.stop()
+                                print(f"    {c('FAIL', RED)}: {e}")
+                            print()
+                        continue  # skip normal tool call path
+                else:
+                    try:
+                        args = json.loads(inline_args)
+                    except json.JSONDecodeError:
+                        print(f"  {c('Invalid JSON', RED)}: {inline_args}")
+                        continue
                 if "repo_path" not in args and repo_path and tool_name in ("scan_hybrid", "scan_static", "detect_tech_stack"):
                     args["repo_path"] = repo_path
                     print(f"  {c('(using default repo_path)', DIM)}")
@@ -1401,6 +1513,11 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 text = result.content[0].text
                 data = json.loads(text)
                 last_result = data
+                last_tool_name = tool_name
+                if tool_name == "scan_mcp" and args.get("target_url"):
+                    last_target_url = args["target_url"]
+                else:
+                    last_target_url = None
                 if data.get("output_dir"):
                     last_output_dir = data["output_dir"]
 

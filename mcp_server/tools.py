@@ -1623,6 +1623,16 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
     except Exception as e:
         return {"error": f"Subprocess failed: {type(e).__name__}: {e}", "target": target_url}
 
+    def _friendly_connection_error(detail: str, url: str) -> str:
+        """Turn cryptic subprocess errors into user-friendly messages."""
+        if "ExceptionGroup" in detail or "TaskGroup" in detail or "unhandled errors" in detail:
+            return f"No server at {url} (connection refused or port not in use?)"
+        if "Connection refused" in detail or "ECONNREFUSED" in detail:
+            return f"No server at {url} (connection refused)"
+        if "timed out" in detail.lower() or "Timeout" in detail:
+            return f"Connection to {url} timed out"
+        return detail[:200] if len(detail) > 200 else detail
+
     if not stdout or not stdout.strip():
         err_detail = stderr.decode(errors="replace")[:500] if stderr else "no output"
         # Check for auth rejection
@@ -1642,7 +1652,8 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
                 "risk_score": "CLEAN",
             }
             return results
-        return {"error": f"Connection failed: {err_detail}", "target": target_url}
+        friendly = _friendly_connection_error(err_detail, target_url)
+        return {"error": f"Connection failed: {friendly}", "target": target_url}
 
     try:
         enumerated = json.loads(stdout.decode())
@@ -1662,7 +1673,8 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
             })
             results["auth_required"] = True
         else:
-            return {"error": f"Connection failed: {err_msg}", "target": target_url}
+            friendly = _friendly_connection_error(err_msg, target_url)
+            return {"error": f"Connection failed: {friendly}", "target": target_url}
     else:
         # --- Auth check ---
         if not auth_token:

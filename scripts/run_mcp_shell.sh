@@ -9,6 +9,10 @@
 #   ./scripts/run_mcp_shell.sh --repo /path/to/repo
 #   ./scripts/run_mcp_shell.sh --debug             # start server in debug mode
 #
+# The script stops any existing server on the port and starts fresh, so your
+# current env (CLAUDE_API_KEY, etc.) is picked up. Use --no-restart to connect
+# to an existing server instead.
+#
 # Prerequisites: Python 3, Go (optional; needed for hybrid scans). On macOS: Xcode CLI or Go from go.dev.
 
 set -e
@@ -54,7 +58,7 @@ if [ ! -x "./scanner" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Start MCP server in background (or use existing one on same port)
+# Step 2: Start MCP server in background (kill existing so it gets current env)
 # ---------------------------------------------------------------------------
 MCP_LOG="${PROJECT_ROOT}/.mcp_server.log"
 SERVER_PID=""
@@ -64,10 +68,26 @@ if printf '%s\n' "$@" | grep -q '^--debug$'; then
     echo "  Debug mode: server will log at DEBUG level"
 fi
 
-# If something is already serving on the port, use it (avoid "address already in use")
-if curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null | grep -q 200; then
-    echo "  Port ${PORT} already in use — using existing server."
+# Kill any existing server on the port so we start fresh with current env (CLAUDE_API_KEY, etc.)
+# Use --no-restart to connect to an existing server instead.
+if printf '%s\n' "$@" | grep -q '^--no-restart$'; then
+    if curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null | grep -q 200; then
+        echo "  Port ${PORT} already in use — using existing server."
+    else
+        echo "  Starting MCP server on port ${PORT} (log: .mcp_server.log)..."
+        "$PY" -m mcp_server $SERVER_OPTS >> "$MCP_LOG" 2>&1 &
+        SERVER_PID=$!
+    fi
 else
+    EXISTING_PID=""
+    if command -v lsof >/dev/null 2>&1; then
+        EXISTING_PID=$(lsof -i ":${PORT}" -t 2>/dev/null || true)
+    fi
+    if [ -n "$EXISTING_PID" ]; then
+        echo "  Stopping existing server on port ${PORT} (PID $EXISTING_PID) to pick up current env..."
+        kill $EXISTING_PID 2>/dev/null || true
+        sleep 2
+    fi
     echo "  Starting MCP server on port ${PORT} (log: .mcp_server.log)..."
     "$PY" -m mcp_server $SERVER_OPTS >> "$MCP_LOG" 2>&1 &
     SERVER_PID=$!
