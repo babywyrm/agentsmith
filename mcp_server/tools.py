@@ -1198,6 +1198,65 @@ _PARAM_RISK_PATTERNS = {
     },
 }
 
+# OWASP MCP Top 10 mapping (Phase 1: taxonomy alignment)
+# MCP01=Token/Secret, MCP02=Privilege, MCP03=Tool Poisoning, MCP05=Command/Injection,
+# MCP06=Prompt Injection, MCP07=Auth, MCP08=Audit
+_OWASP_MCP_MAP = {
+    "transport_security": ("MCP01", "Alert on: cleartext HTTP to MCP endpoints"),
+    "authentication": ("MCP07", "401: no_auth_header or jwt.aud mismatch"),
+    "experimental_features": ("MCP03", "version < min_approved in registry"),
+    "dangerous_capability": ("MCP05", "shell_metachar_detected or exec_syscall"),  # default
+    "injection_vector": ("MCP05", "unconstrained_injection_parameter"),
+    "weak_validation": ("MCP05", "missing_maxLength_or_enum"),
+    "tool_poisoning": ("MCP03", "instruction_in_tool_output"),
+    "credential_exposure": ("MCP01", "secrets_pattern_in_logs"),
+    "excessive_permissions": ("MCP02", "audience_mismatch_attempt"),
+    "excessive_permissions_tool": ("MCP02", "scope_inflation_detected"),
+    "poor_documentation": ("MCP03", "unsigned_tool_registration"),
+    "sensitive_resource": ("MCP01", "sensitive_resource_uri"),
+    "file_system_resource": ("MCP05", "path_contains_../"),
+}
+
+
+def _add_owasp_mcp_tags(finding: dict) -> None:
+    """Add OWASP MCP Top 10 ID and blue-team detection signal to a finding (in-place)."""
+    cat = finding.get("category", "")
+    title = finding.get("title", "")
+
+    # Special cases for dangerous_capability (map by title content)
+    if cat == "dangerous_capability":
+        if "Command" in title or "Execution" in title or "Database" in title:
+            finding["owasp_mcp_id"] = "MCP05"
+            finding["blue_team_signal"] = "shell_metachar_detected"
+        elif "File" in title and ("Write" in title or "Delete" in title):
+            finding["owasp_mcp_id"] = "MCP05"
+            finding["blue_team_signal"] = "path_contains_../"
+        elif "Network" in title or "SSRF" in title:
+            finding["owasp_mcp_id"] = "MCP05"
+            finding["blue_team_signal"] = "unexpected_egress_domain"
+        elif "Auth" in title or "Permission" in title or "Excessive" in title:
+            finding["owasp_mcp_id"] = "MCP02"
+            finding["blue_team_signal"] = "audience_mismatch_attempt"
+        elif "Environment" in title or "Config" in title:
+            finding["owasp_mcp_id"] = "MCP01"
+            finding["blue_team_signal"] = "secrets_pattern_in_logs"
+        else:
+            finding["owasp_mcp_id"] = "MCP05"
+            finding["blue_team_signal"] = "dangerous_capability_detected"
+    elif cat == "excessive_permissions":
+        # Distinguish tool-level vs param-level
+        finding["owasp_mcp_id"] = "MCP02"
+        finding["blue_team_signal"] = "scope_inflation_detected"
+    else:
+        owasp, signal = _OWASP_MCP_MAP.get(cat, ("MCP05", "static_analysis_finding"))
+        finding["owasp_mcp_id"] = owasp
+        finding["blue_team_signal"] = signal
+
+    # Positive auth finding (server requires auth)
+    if cat == "authentication" and finding.get("severity") == "INFO":
+        finding["owasp_mcp_id"] = "MCP07"
+        finding["blue_team_signal"] = "auth_enforced"
+
 
 def _analyze_tool_security(tool) -> list[dict]:
     """Run security heuristics on a single MCP tool definition."""
@@ -1674,11 +1733,19 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
         if "tools_error" in enumerated:
             results["tools_error"] = enumerated["tools_error"]
 
+    # --- OWASP MCP Top 10 tags (Phase 1: taxonomy alignment) ---
+    for f in findings:
+        _add_owasp_mcp_tags(f)
+
     # --- Summary ---
     sev_counts: dict[str, int] = {}
+    owasp_counts: dict[str, int] = {}
     for f in findings:
         s = f.get("severity", "INFO")
         sev_counts[s] = sev_counts.get(s, 0) + 1
+        oid = f.get("owasp_mcp_id", "")
+        if oid:
+            owasp_counts[oid] = owasp_counts.get(oid, 0) + 1
 
     results["summary"] = {
         "total_tools": len(results["tools"]),
@@ -1686,6 +1753,7 @@ async def _connect_and_scan(target_url: str, transport: str, timeout: int,
         "total_prompts": len(results["prompts"]),
         "total_findings": len(findings),
         "by_severity": sev_counts,
+        "by_owasp_mcp": owasp_counts,
         "risk_score": _calculate_risk_score(findings),
     }
 

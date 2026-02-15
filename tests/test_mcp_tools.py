@@ -22,6 +22,7 @@ from mcp_server.tools import (
     _validate_severity,
     _find_output_dir,
     _count_by_key,
+    _add_owasp_mcp_tags,
     TOOL_DEFINITIONS,
     TOOL_HANDLERS,
     handle_list_presets,
@@ -323,6 +324,25 @@ class TestHandleScanStatic(unittest.TestCase):
         with self.assertRaises(ValueError):
             _run_async(handle_scan_static({"repo_path": "/nonexistent/path"}))
 
+
+class TestOWASPMCPTags(unittest.TestCase):
+    """Test OWASP MCP Top 10 tagging (Phase 1)."""
+
+    def test_adds_owasp_mcp_id_to_findings(self):
+        """Findings should get owasp_mcp_id and blue_team_signal."""
+        findings = [
+            {"category": "transport_security", "severity": "MEDIUM", "title": "HTTP"},
+            {"category": "authentication", "severity": "HIGH", "title": "No auth"},
+            {"category": "credential_exposure", "severity": "HIGH", "title": "Token param"},
+            {"category": "tool_poisoning", "severity": "CRITICAL", "title": "Hidden instructions"},
+        ]
+        for f in findings:
+            _add_owasp_mcp_tags(f)
+        self.assertEqual(findings[0]["owasp_mcp_id"], "MCP01")
+        self.assertEqual(findings[1]["owasp_mcp_id"], "MCP07")
+        self.assertEqual(findings[2]["owasp_mcp_id"], "MCP01")
+        self.assertEqual(findings[3]["owasp_mcp_id"], "MCP03")
+        self.assertIn("blue_team_signal", findings[0])
 
 class TestHandleDetectTechStack(unittest.TestCase):
     """Test detect_tech_stack handler."""

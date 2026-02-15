@@ -892,6 +892,10 @@ def _print_result_detail(tool_name: str, data: dict, *, verbose: bool = False):
         print(f"    {c('Tools:', BOLD)}       {summary.get('total_tools', 0)}")
         print(f"    {c('Resources:', BOLD)}   {summary.get('total_resources', 0)}")
         print(f"    {c('Prompts:', BOLD)}     {summary.get('total_prompts', 0)}")
+        by_owasp = summary.get("by_owasp_mcp", {})
+        if by_owasp:
+            owasp_str = ", ".join(f"{k}: {v}" for k, v in sorted(by_owasp.items()))
+            print(f"    {c('OWASP MCP:', BOLD)}  {owasp_str}")
 
         # Show top findings
         findings = data.get("findings", [])
@@ -901,11 +905,13 @@ def _print_result_detail(tool_name: str, data: dict, *, verbose: bool = False):
             print(f"    {c('Top findings:', BOLD)}")
             for f in findings[:8]:
                 sev = f.get("severity", "?")
+                owasp = f.get("owasp_mcp_id", "")
                 clr = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": YELLOW, "LOW": CYAN}.get(sev, DIM)
-                title = f.get("title", "?")[:60]
+                title = f.get("title", "?")[:55]
                 tool = f.get("tool", f.get("resource", ""))
                 loc = f" ({tool})" if tool else ""
-                print(f"      {c(f'[{sev}]', clr):>22} {title}{c(loc, DIM)}")
+                prefix = f"[{owasp}] " if owasp else ""
+                print(f"      {c(prefix, DIM)}{c(f'[{sev}]', clr):>22} {title}{c(loc, DIM)}")
             if len(findings) > 8:
                 print(f"      {c(f'... and {len(findings) - 8} more', DIM)}")
 
