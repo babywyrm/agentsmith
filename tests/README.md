@@ -89,7 +89,7 @@ The MCP server exposes `scan_mcp` to security-scan remote MCP servers. Two ways 
 
 | Method | Command |
 |--------|---------|
-| **Interactive shell** | `./scripts/run_mcp_shell.sh` → at `mcp>` type `scan_mcp {"target_url": "http://localhost:9001/sse"}` |
+| **Interactive shell** | `./scripts/run_mcp_shell.sh` → at `mcp>` type `scan_mcp 9001` or `dvmcp` |
 | **Automated test** | `AGENTSMITH_MCP_TEST_TARGET=http://localhost:2266/sse ./scripts/run_mcp_tests.sh` (adds scan_mcp test) |
 | **DVMCP suite** | `./tests/test_dvmcp.sh` or `./tests/test_dvmcp.sh 1 8` (requires DVMCP cloned at `tests/test_targets/DVMCP`) |
 

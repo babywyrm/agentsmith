@@ -601,9 +601,10 @@ pip install -r mcp_server/requirements.txt
 # Start the server (dev mode)
 python3 -m mcp_server --no-auth
 
-# One-command flows (start server if needed, then run client)
+# One-command flows (stops existing server, starts fresh with current env)
 ./scripts/run_mcp_shell.sh              # Setup + server + interactive client
 ./scripts/run_mcp_shell.sh --debug       # Same, with server debug logging
+./scripts/run_mcp_shell.sh --no-restart  # Connect to existing server (don't restart)
 ./scripts/run_mcp_tests.sh               # Start server, run automated test suite
 ./scripts/run_mcp_tests.sh --repo /path  # Use specific repo for tests
 
@@ -626,7 +627,7 @@ python3 -m mcp_server --port 2266
 | `list_presets` | List available scan presets |
 | `scan_mcp` | Security-scan remote MCP servers (enumerate tools, check auth, analyze risks) |
 
-**Scan MCP from the shell:** `./scripts/run_mcp_shell.sh` → at `mcp>` type `scan_mcp {"target_url": "http://localhost:9001/sse"}`. See [docs/MCP_SCANNING.md](docs/MCP_SCANNING.md).
+**Scan MCP from the shell:** `./scripts/run_mcp_shell.sh` → at `mcp>` type `scan_mcp 9001` or `dvmcp` for all 10 DVMCP challenges. See [docs/MCP_SCANNING.md](docs/MCP_SCANNING.md).
 
 ### AI Provider Support
 
@@ -676,6 +677,7 @@ Agent Smith outputs may contain sensitive information. The following are automat
 - Use environment variables: `export CLAUDE_API_KEY="sk-ant-api03-..."`
 - The `.gitignore` file protects against accidental commits
 - All outputs are gitignored by default
+- **MCP server**: `run_mcp_shell.sh` stops any existing server and starts fresh so your current env (CLAUDE_API_KEY, etc.) is picked up
 
 ### Verifying Before Commit
 

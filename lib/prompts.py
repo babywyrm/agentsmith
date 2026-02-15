@@ -9,23 +9,52 @@ from __future__ import annotations
 import json as _json
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class PromptFactory:
     """Generates dynamic prompts for each stage of the analysis."""
 
     @staticmethod
-    def prioritization(all_files: List[Path], question: str, limit: int) -> str:
+    def prioritization(
+        all_files: List[Path],
+        question: str,
+        limit: int,
+        static_findings: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         filenames = [f.name for f in all_files]
+        static_context = ""
+        if static_findings:
+            # Group findings by filename (basename) for prioritization context
+            by_file: Dict[str, List[str]] = {}
+            for f in static_findings:
+                file_path = f.get("file", "")
+                if file_path:
+                    name = Path(file_path).name
+                    rule = f.get("rule_name", f.get("title", "?"))
+                    sev = f.get("severity", "")
+                    label = f"{rule}" + (f" ({sev})" if sev else "")
+                    by_file.setdefault(name, []).append(label)
+            if by_file:
+                summary = {
+                    name: findings[:5]  # cap per file to avoid token bloat
+                    for name, findings in by_file.items()
+                }
+                static_context = f"""
+Static Scanner Results (pre-analyzed — prioritize files with findings):
+{_json.dumps(summary, indent=2)}
+
+Files with static findings should be prioritized first; the AI deep-dive will confirm and expand on these.
+"""
+
         return f"""You are a lead software architect. Your task is to identify the most critical files to analyze to answer the user's question.
 
 User Question: "{question}"
-
+{static_context}
 File List:
 {_json.dumps(filenames, indent=2)}
 
-Return a JSON object with a single key "prioritized_files". This key should contain a list of objects, where each object has a "file_name" and a "reason" explaining its relevance. Limit the list to the top {limit} most relevant files. Your response must contain ONLY the JSON object.
+Return a JSON object with a single key "prioritized_files". This key should contain a list of objects, where each object has a "file_name" and a "reason" explaining its relevance. Limit the list to the top {limit} most relevant files. When static scanner results are provided, strongly prefer files that already have findings — the AI analysis will validate and deepen those. Your response must contain ONLY the JSON object.
 Example:
 {{
   "prioritized_files": [

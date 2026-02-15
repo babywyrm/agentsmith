@@ -497,12 +497,19 @@ class Orchestrator:
             if len(findings) > 5:
                 self.console.print(f"    [dim]... and {len(findings) - 5} more[/dim]")
     
-    def run_prioritization_stage(self, all_files: List[Path]) -> Optional[List[Path]]:
-        """Prioritize files using AI - returns list of prioritized file paths."""
+    def run_prioritization_stage(
+        self,
+        all_files: List[Path],
+        static_findings: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[List[Path]]:
+        """Prioritize files using AI - returns list of prioritized file paths.
+        When static_findings are provided, the AI is instructed to prefer files with static hits."""
         if not self.prioritize or not all_files:
             return None
         
         self.console.print("\n[bold cyan]🎯 Stage 1: Prioritization[/bold cyan]")
+        if static_findings:
+            self.console.print(f"[dim]Using {len(static_findings)} static findings to bias file selection...[/dim]")
         self.console.print(f"[dim]Analyzing {len(all_files)} files to identify top {self.prioritize_top} most relevant...[/dim]")
         
         # Enhance question with framework-specific context
@@ -515,7 +522,12 @@ class Orchestrator:
             self.console.print(f"[dim]💡 Enhanced question with framework context[/dim]")
         
         try:
-            prompt = PromptFactory.prioritization(all_files, enhanced_question, self.prioritize_top)
+            prompt = PromptFactory.prioritization(
+                all_files,
+                enhanced_question,
+                self.prioritize_top,
+                static_findings=static_findings,
+            )
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=get_model_max_tokens(self.model, stage="prioritization"),
@@ -609,14 +621,18 @@ class Orchestrator:
             self.console.print("[yellow]Continuing with all files...[/yellow]")
             return None
 
-    def run_ai_scanner(self) -> List[Finding]:
-        """Iterate over files, run AI analysis per profile, collect findings with Rich UI."""
+    def run_ai_scanner(
+        self,
+        static_findings: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Finding]:
+        """Iterate over files, run AI analysis per profile, collect findings with Rich UI.
+        When static_findings are provided, prioritization prefers files with static hits."""
         all_files = self._get_files_to_scan()
         
-        # Prioritization stage
+        # Prioritization stage (uses static findings to bias selection when available)
         if self.debug:
             logger.debug(f"Prioritization enabled: {self.prioritize}, files: {len(all_files)}")
-        files = self.run_prioritization_stage(all_files)
+        files = self.run_prioritization_stage(all_files, static_findings=static_findings)
         if files is None:
             if self.prioritize:
                 logger.warning(f"Prioritization was enabled but returned None (files: {len(all_files)})")
@@ -1377,7 +1393,7 @@ class Orchestrator:
             json.dump(static_findings, f, indent=2)
         self.console.print(f"[dim]{len(static_findings)} static findings written to {static_output_file}[/dim]")
 
-        ai_findings = self.run_ai_scanner()
+        ai_findings = self.run_ai_scanner(static_findings=static_findings)
         ai_output_file = self.output_path / "ai_findings.json"
         with open(ai_output_file, "w", encoding="utf-8") as f:
             json.dump(ai_findings, f, indent=2)

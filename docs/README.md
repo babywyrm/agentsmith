@@ -12,6 +12,7 @@ Index of documentation in this directory.
 | [DEDUPLICATION_FLOW.md](DEDUPLICATION_FLOW.md) | How deduplication works (opt-in, flow, merge strategies) |
 | [AGENTSMITH_CONTEXT_README.md](AGENTSMITH_CONTEXT_README.md) | Context library API: `ReviewContextManager`, caching, cost tracking |
 | [CHANGELOG.md](CHANGELOG.md) | Release history and changes |
+| [STATIC_SCANNER_STRATEGY.md](STATIC_SCANNER_STRATEGY.md) | Static scanner as prioritization engine, improvement roadmap |
 
 ## Quick Links
 

@@ -232,14 +232,17 @@ Agent Smith — DVMCP Security Scan
 ### Step 3: Scan Interactively
 
 ```bash
-# Terminal 3 — Interactive REPL
+# Terminal 3 — Interactive REPL (or use ./scripts/run_mcp_shell.sh)
 python3 -m mcp_server.test_client interact
 ```
+
+**Shorthand:** Use `scan_mcp 9001` instead of full JSON. For multiple ports: `scan_mcp 9001 9002 9008`. Or run `dvmcp` to sweep all 10 challenges.
 
 #### Example: Challenge 1 — Basic Prompt Injection (port 9001)
 
 ```
-mcp> scan_mcp {"target_url": "http://localhost:9001/sse"}
+mcp> scan_mcp 9001
+# or: scan_mcp {"target_url": "http://localhost:9001/sse"}
 
   Risk Score:  HIGH
   Findings:    4
@@ -333,7 +336,17 @@ mcp> scan_mcp {"target_url": "http://localhost:9008/sse"}
 
 ### Step 4: Automated Sweep
 
-Scan all 10 challenges at once:
+**From the MCP shell:** Run `dvmcp` to scan all 10 challenges in one command:
+
+```
+mcp> dvmcp
+  DVMCP sweep — scanning challenges 1–10 (ports 9001–9010)
+  1. Basic Prompt Injection              → HIGH (509ms)
+  2. Tool Poisoning                      → CRITICAL (420ms)
+  ...
+```
+
+**From the command line:** Use the test script:
 
 ```bash
 ./tests/test_dvmcp.sh
@@ -435,11 +448,11 @@ Rating:
 
 ## Scanning Your Own MCP Servers
 
-Point `scan_mcp` at any MCP server:
+Point `scan_mcp` at any MCP server. Use shorthand for localhost ports:
 
 ```
-mcp> scan_mcp {"target_url": "http://localhost:3000/sse"}
-mcp> scan_mcp {"target_url": "https://mcp.example.com/mcp/", "transport": "http"}
+mcp> scan_mcp 3000                                    # → http://localhost:3000/sse
+mcp> scan_mcp 9001 9002 9008                          # multiple ports
 mcp> scan_mcp {"target_url": "https://mcp.example.com/sse", "auth_token": "your-token"}
 ```
 

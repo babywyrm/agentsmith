@@ -9,6 +9,15 @@ All notable changes to this project will be documented in this file.
 - **MCP preset** (`--preset mcp`): 2 files, no payloads/annotations, ~1 min — for MCP shell and Cursor integration
 - **MCP shell docs**: Tail log (`tail -f .mcp_server.log`), debug mode, `scan_mcp` from interactive shell
 - **docs/README.md**: Index of all documentation
+- **scan_mcp shorthand**: `scan_mcp 9001` or `scan_mcp 9001 9002 9008` → localhost ports (no JSON needed)
+- **dvmcp command**: Built-in sweep of all 10 DVMCP challenges (ports 9001–9010) from MCP shell
+- **Status enhancements**: `status` shows last tool and last target; `last` shows header with target
+- **Colorized `last`**: JSON output from `last` command now syntax-highlighted (keys, strings, numbers)
+- **Clearer scan_mcp errors**: Connection failures show friendly messages instead of ExceptionGroup stack traces
+- **run_mcp_shell.sh --restart**: Script now stops existing server and starts fresh to pick up current env (CLAUDE_API_KEY, etc.); use `--no-restart` to connect to existing server
+- **Static → Prioritization**: Hybrid scans now feed static findings into the AI prioritization prompt; files with static hits are preferred for deep-dive analysis (saves AI cost, improves coverage)
+- **Node.js/Mongoose rules**: New rules in rules_core.json for Mongoose `findByIdAndUpdate(req.body)`, `Model.update(req.body)`, mass assignment, and req.params in MongoDB queries
+- **docs/STATIC_SCANNER_STRATEGY.md**: Strategy doc for static scanner improvements and prioritization logic
 
 ### Changed
 

@@ -8,7 +8,8 @@ Model Context Protocol (MCP) server that exposes Agent Smith's security scanning
 
 ```bash
 ./scripts/run_mcp_shell.sh
-# At mcp> prompt: scan_hybrid {"preset": "mcp"}, scan_mcp {"target_url": "..."}, etc.
+# At mcp> prompt: scan_hybrid {"preset": "mcp"}, scan_mcp 9001, dvmcp, etc.
+# The script stops any existing server and starts fresh so your env (CLAUDE_API_KEY) is picked up.
 ```
 
 **Manual:** Start server only (for Cursor/IDE integration):

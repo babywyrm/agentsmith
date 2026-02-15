@@ -88,6 +88,38 @@
     "remediation": "Use parameterized queries, avoid $where operator."
   },
   {
+    "name": "Mongoose findByIdAndUpdate with req.body",
+    "pattern": "(?i)(findByIdAndUpdate|findOneAndUpdate)\\s*\\([^,]+,\\s*req\\.body",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "Mongoose update with raw req.body allows NoSQL operator injection ($set, $where, etc.)",
+    "remediation": "Whitelist fields: { $set: { title: req.body.title, content: req.body.content } }"
+  },
+  {
+    "name": "Mongoose Model.update with req.body",
+    "pattern": "(?i)\\.(update|updateOne|updateMany)\\s*\\([^)]*req\\.body",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "Mongoose update with raw req.body allows NoSQL operator injection",
+    "remediation": "Whitelist fields; never pass req.body directly as update document."
+  },
+  {
+    "name": "Express req.body to ORM create",
+    "pattern": "(?i)(\\.create|\\.insert)\\s*\\(\\s*req\\.body",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "Mass assignment - req.body passed directly to create/insert",
+    "remediation": "Whitelist permitted fields explicitly."
+  },
+  {
+    "name": "Node req.params in MongoDB query",
+    "pattern": "(?i)(findOne|findById)\\s*\\(\\s*\\{\\s*_id\\s*:\\s*req\\.(params|query)",
+    "severity": "HIGH",
+    "category": "A03",
+    "description": "User-controlled ID in MongoDB query - potential NoSQL injection or IDOR",
+    "remediation": "Validate/sanitize ID; use Mongoose ObjectId validation."
+  },
+  {
     "name": "PHP Unserialize",
     "pattern": "(?i)unserialize\\s*\\(",
     "severity": "CRITICAL",
@@ -918,5 +950,135 @@
     "category": "A09",
     "description": "Catching a generic Exception can hide specific, security-relevant errors.",
     "remediation": "Catch specific exception types to ensure proper error handling and logging."
+  },
+
+  {
+    "name": "Spring Data JPA Native Query",
+    "pattern": "(?i)@Query\\s*\\([^)]*nativeQuery\\s*=\\s*true",
+    "severity": "HIGH",
+    "category": "A03",
+    "description": "Native SQL in Spring Data JPA - risk of injection if query uses string concatenation",
+    "remediation": "Use JPQL or parameterized native queries; never concatenate user input."
+  },
+  {
+    "name": "Spring Data JPA Query Concatenation",
+    "pattern": "(?i)@Query\\s*\\([^)]*\\+\\s*",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "SQL/JPQL query built with string concatenation - SQL injection risk",
+    "remediation": "Use parameterized queries with :param or ?1 placeholders."
+  },
+  {
+    "name": "Spring permitAll Sensitive Path",
+    "pattern": "(?i)(permitAll|anonymous\\(\\))\\s*\\.(antMatchers|requestMatchers)\\s*\\([^)]*(admin|api|internal|config)",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "Sensitive path allowed without authentication",
+    "remediation": "Require authentication for admin, api, and internal endpoints."
+  },
+  {
+    "name": "Spring RestTemplate User URL",
+    "pattern": "(?i)(RestTemplate|WebClient)\\.(get|post|exchange)\\s*\\([^)]*\\+\\s*",
+    "severity": "HIGH",
+    "category": "A10",
+    "description": "HTTP client URL built with concatenation - SSRF risk",
+    "remediation": "Validate and whitelist URLs before making requests."
+  },
+  {
+    "name": "JPA EntityManager Native Query",
+    "pattern": "(?i)(createNativeQuery|createQuery)\\s*\\([^)]*\\+\\s*",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "JPA/Hibernate query with string concatenation - SQL injection",
+    "remediation": "Use parameterized queries with setParameter()."
+  },
+  {
+    "name": "Spring @RequestBody to Repository",
+    "pattern": "(?i)(repository|service)\\.(save|update)\\s*\\([^)]*request\\.getBody|@RequestBody.*\\.save\\(",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "Request body passed directly to repository - mass assignment risk",
+    "remediation": "Map and validate fields explicitly; use DTOs with allowed fields."
+  },
+  {
+    "name": "Quarkus Permissions Disabled",
+    "pattern": "(?i)quarkus\\.security\\.deny-unauthenticated\\s*=\\s*false",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "Quarkus allows unauthenticated access",
+    "remediation": "Enable authentication for production."
+  },
+
+  {
+    "name": "Django raw() SQL",
+    "pattern": "(?i)\\.raw\\s*\\([^)]*%s|\\.raw\\s*\\([^)]*\\+\\s*|\\.raw\\s*\\([^)]*f[\"']",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "Django raw() with string formatting - SQL injection risk",
+    "remediation": "Use parameterized queries: raw('SELECT * FROM t WHERE id = %s', [id])"
+  },
+  {
+    "name": "Django extra() SQL",
+    "pattern": "(?i)\\.extra\\s*\\([^)]*select\\s*=\\s*|\\.extra\\s*\\([^)]*where\\s*=",
+    "severity": "HIGH",
+    "category": "A03",
+    "description": "Django extra() with raw SQL - injection risk if user input used",
+    "remediation": "Use parameterized where; avoid user input in extra()."
+  },
+  {
+    "name": "SQLAlchemy text() with f-string",
+    "pattern": "(?i)text\\s*\\([^)]*f[\"']|text\\s*\\([^)]*%\\s*\\w|\\.execute\\s*\\([^)]*%\\s*",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "SQLAlchemy text() or execute with f-string/format - SQL injection",
+    "remediation": "Use bindparams() or :param placeholders; never format/concatenate."
+  },
+  {
+    "name": "FastAPI Body to ORM",
+    "pattern": "(?i)(await\\s+)?(session\\.add|session\\.merge|db\\.add|db\\.merge)\\s*\\([^)]*body|Body\\(\\).*\\.add\\(",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "FastAPI request body passed directly to ORM - mass assignment",
+    "remediation": "Use Pydantic model with explicit fields; validate before persist."
+  },
+  {
+    "name": "FastAPI Request in Query",
+    "pattern": "(?i)session\\.(execute|query)\\s*\\([^)]*request\\.|db\\.query\\s*\\([^)]*request\\.",
+    "severity": "HIGH",
+    "category": "A03",
+    "description": "Database query built from request - injection or IDOR risk",
+    "remediation": "Validate and sanitize; use ORM query builders with params."
+  },
+  {
+    "name": "Django ORM filter with F from request",
+    "pattern": "(?i)\\.filter\\s*\\([^)]*request\\.(GET|POST|query_params)",
+    "severity": "MEDIUM",
+    "category": "A03",
+    "description": "Django filter using request params directly - potential injection",
+    "remediation": "Validate and type-check params; use allowlists for field names."
+  },
+  {
+    "name": "Python format in SQL",
+    "pattern": "(?i)(execute|executemany|raw)\\s*\\([^)]*\\.format\\s*\\(",
+    "severity": "CRITICAL",
+    "category": "A03",
+    "description": "SQL executed with str.format() - SQL injection",
+    "remediation": "Use parameterized queries with %s or :param placeholders."
+  },
+  {
+    "name": "Celery task with pickle",
+    "pattern": "(?i)celery.*pickle|CELERY_ACCEPT_CONTENT.*pickle",
+    "severity": "HIGH",
+    "category": "A08",
+    "description": "Celery accepting pickle serialization - deserialization RCE risk",
+    "remediation": "Use JSON serialization; set CELERY_ACCEPT_CONTENT=['json']."
+  },
+  {
+    "name": "Pydantic model_dump to ORM",
+    "pattern": "(?i)\\.(create|add|insert)\\s*\\([^)]*\\.model_dump\\s*\\(|\\.create\\s*\\([^)]*\\*\\.model_dump",
+    "severity": "HIGH",
+    "category": "A01",
+    "description": "Pydantic model_dump() passed to ORM - mass assignment if model has extra fields",
+    "remediation": "Explicitly select fields: model_dump(include={'field1','field2'})."
   }
 ]
