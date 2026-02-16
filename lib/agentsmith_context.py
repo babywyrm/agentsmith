@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -168,26 +169,30 @@ class ReviewContextManager:
     # Directory Fingerprinting
     # ========================================================================
     
-    def compute_dir_fingerprint(self, repo_path: Union[str, Path]) -> str:
+    def compute_dir_fingerprint(
+        self, repo_path: Union[str, Path], use_git: bool = True
+    ) -> str:
         """
         Compute a deterministic hash of the directory structure.
-        
-        Uses file paths, sizes, and modification times to create a stable
-        fingerprint that changes when files are added, removed, or modified.
-        
+
+        When the repo is a git repository, incorporates the current commit
+        for more reliable "same codebase" detection. Falls back to file
+        paths, sizes, and mtimes when git is unavailable.
+
         Args:
             repo_path: Path to repository root
-            
+            use_git: If True (default), use git rev-parse HEAD when available
+
         Returns:
             16-character hexadecimal fingerprint
-            
+
         Raises:
             ValueError: If repo_path is not a directory
         """
         repo = Path(repo_path).resolve()
         if not repo.is_dir():
             raise ValueError(f"Repository path '{repo_path}' is not a directory")
-        
+
         file_info = []
         for file_path in sorted(repo.rglob("*")):
             if not file_path.is_file():
@@ -199,11 +204,30 @@ class ReviewContextManager:
             except (OSError, PermissionError) as e:
                 logger.debug(f"Skipping {file_path}: {e}")
                 continue
-        
+
         content = "\n".join(file_info)
-        fingerprint = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-        logger.debug(f"Computed fingerprint for {repo_path}: {fingerprint}")
-        return fingerprint
+        file_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+        if use_git and (repo / ".git").exists():
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=str(repo),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    commit = result.stdout.strip()[:12]
+                    combined = f"{commit}:{file_hash}"
+                    fingerprint = hashlib.sha256(combined.encode("utf-8")).hexdigest()[:16]
+                    logger.debug(f"Computed fingerprint (git) for {repo_path}: {fingerprint}")
+                    return fingerprint
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                logger.debug(f"Git fingerprint fallback: {e}")
+
+        logger.debug(f"Computed fingerprint for {repo_path}: {file_hash}")
+        return file_hash
     
     def detect_changes(
         self,

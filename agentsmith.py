@@ -135,6 +135,8 @@ def main():
     analyze_parser.add_argument('question', nargs='?', help='Analysis question')
     # Pass through all smart_analyzer arguments
     analyze_parser.add_argument('--cache-dir', default='.agentsmith_cache', help='Cache directory')
+    analyze_parser.add_argument('--cache-in-repo', action='store_true',
+        help='Store cache in target repo .agentsmith/ (overrides --cache-dir)')
     analyze_parser.add_argument('--no-cache', action='store_true', help='Disable cache')
     analyze_parser.add_argument('--include-yaml', action='store_true', help='Include YAML files')
     analyze_parser.add_argument('--include-helm', action='store_true', help='Include Helm templates')
@@ -189,6 +191,8 @@ def main():
     ctf_parser.add_argument('question', nargs='?', help='Analysis question')
     # Similar args to analyze mode
     ctf_parser.add_argument('--cache-dir', default='.agentsmith_cache', help='Cache directory')
+    ctf_parser.add_argument('--cache-in-repo', action='store_true',
+        help='Store cache in target repo .agentsmith/ (overrides --cache-dir)')
     ctf_parser.add_argument('--no-cache', action='store_true', help='Disable cache')
     ctf_parser.add_argument('--max-file-bytes', type=int, default=500_000, help='Max file size')
     ctf_parser.add_argument('--max-files', type=int, default=400, help='Max files to analyze')
@@ -332,6 +336,8 @@ def main():
     elif args.mode == 'analyze':
         # Import and run smart_analyzer
         from smart_analyzer import main as analyze_main
+        if getattr(args, 'cache_in_repo', False):
+            args.cache_dir = str(Path(args.repo_path) / '.agentsmith')
         # Convert argparse namespace to sys.argv for smart_analyzer
         sys.argv = ['smart_analyzer.py', args.repo_path]
         if args.question:
@@ -339,7 +345,7 @@ def main():
         
         # Add all other arguments
         for key, value in vars(args).items():
-            if key in ('mode', 'repo_path', 'question') or value is None:
+            if key in ('mode', 'repo_path', 'question', 'cache_in_repo') or value is None:
                 continue
             if isinstance(value, bool) and value:
                 sys.argv.append(f'--{key.replace("_", "-")}')
@@ -355,13 +361,15 @@ def main():
     elif args.mode == 'ctf':
         # Import and run ctf_analyzer
         from ctf_analyzer import main as ctf_main
+        if getattr(args, 'cache_in_repo', False):
+            args.cache_dir = str(Path(args.repo_path) / '.agentsmith')
         # Similar conversion for CTF mode
         sys.argv = ['ctf_analyzer.py', args.repo_path]
         if args.question:
             sys.argv.append(args.question)
         
         for key, value in vars(args).items():
-            if key in ('mode', 'repo_path', 'question') or value is None:
+            if key in ('mode', 'repo_path', 'question', 'cache_in_repo') or value is None:
                 continue
             if isinstance(value, bool) and value:
                 sys.argv.append(f'--{key.replace("_", "-")}')

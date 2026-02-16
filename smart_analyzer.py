@@ -1431,7 +1431,8 @@ def main() -> None:
     if review_state and context:
         context.mark_completed(review_state.review_id)
         console.print(f"\n[green]✓ Review state saved: {review_state.review_id}[/green]")
-        console.print(f"[dim]Context file: .agentsmith_cache/reviews/_{review_state.review_id}_context.md[/dim]")
+        ctx_path = getattr(context, 'cache_dir', '.agentsmith_cache')
+        console.print(f"[dim]Context file: {ctx_path}/reviews/_{review_state.review_id}_context.md[/dim]")
     
     # Display cost summary
     # Get cost summary from context manager

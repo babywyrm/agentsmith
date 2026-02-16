@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Context/cache**: Git-aware fingerprint, `--cache-in-repo` (analyze/ctf), `lib/output_manager.py`
 - **Tech-stack-aware rules**: `rules_node.json` and `rules_python.json` loaded when `package.json` or `requirements.txt` detected (child_process, vm, pickle, yaml patterns)
 - **Attack chain profiling** (design): Documented in STRETCH_GOALS as advanced opt-in feature; AI-driven synthesis of findings + taint flows into multi-step attack paths
 - **SARIF export**: `agentsmith.py static --output sarif` for IDE/Code Scanning integration
@@ -35,7 +36,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Preset count: 7 (added `mcp`)
-- Test count: 223 (was 190+)
+- Test count: 224
 
 ## [1.x] - 2026-01-24
 

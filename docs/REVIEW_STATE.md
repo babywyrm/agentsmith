@@ -1,6 +1,6 @@
 # Review State and Cache
 
-> **Note**: This documentation describes review state features. The implementation is in `lib/agentsmith_context.py` and is used by `smart_analyzer.py` and `orchestrator.py`.
+> **Note**: Implementation in `lib/agentsmith_context.py`; used by `smart_analyzer.py` and `ctf_analyzer.py`.
 
 This guide explains how to preserve context across sessions, resume prior reviews, and manage the cache system.
 
@@ -22,6 +22,9 @@ python3 smart_analyzer.py /path/to/repo "your question" --enable-review-state
 
 # Or using agentsmith.py analyze mode
 python3 agentsmith.py analyze /path/to/repo "your question" --enable-review-state
+
+# Store cache in target repo (portable, survives cd)
+python3 agentsmith.py analyze /path/to/repo "your question" --enable-review-state --cache-in-repo
 ```
 
 2) Resume a prior review
@@ -49,15 +52,15 @@ python3 smart_analyzer.py . --review-status <review_id>
 4) Open the saved context in your editor
 
 ```
-.agentsmith_cache/reviews/_<review_id>_context.md
+<cache_dir>/reviews/_<review_id>_context.md
 ```
-Use this as a prompt anchor in Cursor/Claude to maintain continuity.
+Default `cache_dir` is `.agentsmith_cache`; with `--cache-in-repo` it's `target_repo/.agentsmith/`.
 
 ---
 
 ## How Review State matching works
 
-- Matching relies on a directory fingerprint (stable hash of paths, file sizes, and mtimes).
+- Matching relies on a directory fingerprint. When the repo is a git repository, the fingerprint incorporates `git rev-parse HEAD` for more reliable "same codebase" detection. Otherwise it uses paths, file sizes, and mtimes.
 - If you run from the same repo path (or one with the same structure), `--enable-review-state` will detect an existing review and prompt to resume.
 - You can always resume explicitly with `--resume-review <review_id>` regardless of path.
 
@@ -68,7 +71,7 @@ Use this as a prompt anchor in Cursor/Claude to maintain continuity.
 - Deep dive: findings collected and files analyzed
 - Synthesis: final report string and lengths
 
-These are visible in the status and in the context file under `.agentsmith_cache/reviews/`.
+These are visible in the status and in the context file under your cache dir.
 
 ---
 
@@ -78,8 +81,8 @@ These are visible in the status and in the context file under `.agentsmith_cache
 - Cache = performance for repeated prompts: stores API responses, auto-reused when inputs match.
 
 They are separate but complementary:
-- Review state files are under: `.agentsmith_cache/reviews/`
-- Cache entries are under namespaced folders: `.agentsmith_cache/<repo_fingerprint>/<model>/`
+- Review state: `<cache_dir>/reviews/`
+- Cache entries: `<cache_dir>/<repo_fingerprint>/<model>/`
 
 ---
 
@@ -104,6 +107,10 @@ python3 smart_analyzer.py . --cache-clear
 python3 smart_analyzer.py . --cache-export cache_manifest.json
 ```
 
+### Storage options
+- **Default**: `.agentsmith_cache/` in current working directory
+- **In-repo**: `--cache-in-repo` stores in `target_repo/.agentsmith/` (portable, add to .gitignore)
+
 ### Namespacing details
 - Cache is namespaced by (repo_fingerprint, model)
 - Keys are SHA256 of: `stage|file|prompt`
@@ -117,7 +124,7 @@ python3 smart_analyzer.py . --cache-export cache_manifest.json
 ```bash
 python3 smart_analyzer.py /path/to/repo "security quick pass" --enable-review-state
 ```
-Expect: analysis runs; Review ID printed; `.agentsmith_cache/` created.
+Expect: analysis runs; Review ID printed; cache dir created.
 
 2) Verify review exists
 ```bash

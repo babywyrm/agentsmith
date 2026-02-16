@@ -17,6 +17,7 @@ A consolidated view of improvement opportunities across the tool. Prioritized by
 | SARIF export | ✓ Done (--output sarif) |
 | Whitelist/ignore | ✓ Done (.scannerignore, --ignore-rules) |
 | Pre-commit example | ✓ Done (examples/pre-commit-hook.sh) |
+| Context/cache | ✓ Done (git fingerprint, --cache-in-repo) |
 
 ---
 
@@ -109,6 +110,7 @@ Rules that require "source + sink" — e.g., `req.body` flowing into `findByIdAn
 5. ~~**SARIF export** (1.2)~~ ✓ Done.
 6. ~~**Pre-commit example** (2.5)~~ ✓ Done.
 7. **Narrow Axios/Go SSRF rules** (2.4) — Reduce false positives on static URLs.
+8. **Orchestrator + MCP cache** — Wire API cache into hybrid/scan_hybrid for faster repeat runs (analyze/ctf already have it).
 
 ---
 

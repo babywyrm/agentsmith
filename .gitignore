@@ -43,6 +43,7 @@ htmlcov/
 # Agent Smith cache and review state
 # -----------------------------------------------------------------------------
 .agentsmith_cache/
+.agentsmith/
 *.agentsmith.cache*
 .gowasp_cache/
 
