@@ -84,7 +84,7 @@ def test_build_url_list_public_targets():
     if PUBLIC_TARGETS_FILE.is_file():
         urls = build_url_list(args)
         assert len(urls) > 0
-        assert all(u.startswith("http://") for u in urls)
+        assert all(u.startswith("http://") or u.startswith("https://") for u in urls)
     else:
         with pytest.raises(SystemExit):
             build_url_list(args)
@@ -102,6 +102,12 @@ def test_build_url_list_dedupes():
     args = parse_args(["--targets", "http://a:1", "http://a:1"])
     urls = build_url_list(args)
     assert urls == ["http://a:1"]
+
+
+def test_parse_args_auth_token():
+    """--auth-token should be accepted."""
+    args = parse_args(["--targets", "http://localhost:9001", "--auth-token", "ghp_xxx"])
+    assert args.auth_token == "ghp_xxx"
 
 
 def test_parse_args_baseline():

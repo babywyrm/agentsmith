@@ -1,11 +1,15 @@
 """CLI argument parsing."""
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 from mcp_attack import __version__
+
+# Env var for auth token (alternative to --auth-token)
+AUTH_TOKEN_ENV = "MCP_AUTH_TOKEN"
 
 # Built-in public targets (DVMCP, demo servers — run locally)
 PUBLIC_TARGETS_FILE = Path(__file__).parent / "data" / "public_targets.txt"
@@ -46,6 +50,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--public-targets",
         action="store_true",
         help="Use built-in public targets list (DVMCP, demo servers)",
+    )
+    p.add_argument(
+        "--auth-token",
+        metavar="TOKEN",
+        default=os.environ.get(AUTH_TOKEN_ENV) or None,
+        help="Bearer token for authenticated MCP endpoints (JWT, PAT, etc.). "
+        f"Or set {AUTH_TOKEN_ENV} env var.",
     )
     p.add_argument(
         "--timeout",

@@ -20,10 +20,30 @@ def _jrpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     }
 
 
-def _probe_sse_path(base: str, path: str, timeout: float = 6.0) -> bool:
+def _auth_headers(auth_token: str | None) -> dict:
+    """Build headers with optional Authorization Bearer."""
+    h = {"Accept": "text/event-stream"}
+    if auth_token:
+        h["Authorization"] = f"Bearer {auth_token}"
+    return h
+
+
+def _mcp_headers(auth_token: str | None) -> dict:
+    """Build MCP request headers with optional Authorization Bearer."""
+    h = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if auth_token:
+        h["Authorization"] = f"Bearer {auth_token}"
+    return h
+
+
+def _probe_sse_path(base: str, path: str, timeout: float = 6.0, auth_token: str | None = None) -> bool:
     url = base + path
     result: list[bool] = [False]
     done = threading.Event()
+    headers = _auth_headers(auth_token)
 
     def _try():
         try:
@@ -31,7 +51,7 @@ def _probe_sse_path(base: str, path: str, timeout: float = 6.0) -> bool:
                 verify=False, timeout=httpx.Timeout(timeout, connect=4.0)
             ) as c:
                 with c.stream(
-                    "GET", url, headers={"Accept": "text/event-stream"}
+                    "GET", url, headers=headers
                 ) as resp:
                     ct = resp.headers.get("content-type", "")
                     if resp.status_code == 200 and "text/event-stream" in ct:
@@ -53,11 +73,12 @@ def _probe_sse_path(base: str, path: str, timeout: float = 6.0) -> bool:
 class MCPSession:
     """SSE-based MCP session."""
 
-    def __init__(self, base: str, sse_path: str, timeout: float = 25.0):
+    def __init__(self, base: str, sse_path: str, timeout: float = 25.0, auth_token: str | None = None):
         self.base = base
         self.sse_url = base + sse_path
         self.post_url: str = ""
         self.timeout = timeout
+        self._auth_token = auth_token
         self._req_id = 0
         self._q: queue.Queue[dict] = queue.Queue()
         self._stop = threading.Event()
@@ -71,11 +92,13 @@ class MCPSession:
         self._listener.start()
 
     def _listen(self):
+        headers = _auth_headers(self._auth_token)
+        headers["Accept"] = "text/event-stream"
         try:
             with self._client.stream(
                 "GET",
                 self.sse_url,
-                headers={"Accept": "text/event-stream"},
+                headers=headers,
             ) as resp:
                 event_type = "message"
                 for raw in resp.iter_lines():
@@ -119,11 +142,12 @@ class MCPSession:
         for attempt in range(retries + 1):
             self._req_id += 1
             payload = _jrpc(method, params, self._req_id)
+            headers = _mcp_headers(self._auth_token)
             try:
                 r = self._client.post(
                     self.post_url,
                     json=payload,
-                    headers={"Content-Type": "application/json"},
+                    headers=headers,
                     timeout=10,
                 )
                 if r.status_code not in (200, 202, 204):
@@ -165,7 +189,7 @@ class MCPSession:
             self._client.post(
                 self.post_url,
                 json=payload,
-                headers=self._headers,
+                headers=_mcp_headers(self._auth_token),
                 timeout=5,
             )
         except Exception:
@@ -256,6 +280,7 @@ class HTTPSession:
                     "method": method,
                     "params": params or {},
                 },
+                headers=self._headers,
                 timeout=5,
             )
         except Exception:
@@ -269,7 +294,10 @@ class HTTPSession:
 
 
 def detect_transport(
-    url: str, connect_timeout: float = 25.0, verbose: bool = False
+    url: str,
+    connect_timeout: float = 25.0,
+    verbose: bool = False,
+    auth_token: str | None = None,
 ) -> MCPSession | HTTPSession | None:
     parsed = urlparse(url)
     base = f"{parsed.scheme}://{parsed.netloc}"
@@ -283,10 +311,10 @@ def detect_transport(
             ordered_paths.append(p)
 
     for sse_path in ordered_paths:
-        if not _probe_sse_path(base, sse_path, timeout=6.0):
+        if not _probe_sse_path(base, sse_path, timeout=6.0, auth_token=auth_token):
             continue
 
-        session = MCPSession(base, sse_path, timeout=connect_timeout)
+        session = MCPSession(base, sse_path, timeout=connect_timeout, auth_token=auth_token)
 
         if session.wait_ready(timeout=12.0) and session.post_url:
             return session
@@ -302,10 +330,7 @@ def detect_transport(
             seen_post.add(p)
             ordered_post.append(p)
 
-    mcp_headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-    }
+    mcp_headers = _mcp_headers(auth_token)
     for path in ordered_post:
         post_url = base + path
         try:
@@ -344,7 +369,7 @@ def detect_transport(
                 )
                 if r.status_code in (400, 404, 422):
                     session = MCPSession(
-                        base, sse_path, timeout=connect_timeout
+                        base, sse_path, timeout=connect_timeout, auth_token=auth_token
                     )
                     if session.wait_ready(timeout=10.0) and session.post_url:
                         client.close()

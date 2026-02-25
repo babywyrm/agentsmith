@@ -68,7 +68,18 @@ python3 -m mcp_attack --targets http://localhost:2266
 
 Scan one MCP server. Use your own MCP server URL or Agent Smith MCP (port 2266) for a self-audit.
 
-### 2. DeepWiki (remote, no-auth)
+### 2. Authenticated MCP (GitHub, etc.)
+
+```bash
+# With Bearer token (JWT, PAT, etc.)
+python3 -m mcp_attack --targets https://api.githubcopilot.com/mcp/ --auth-token ghp_xxx
+
+# Or use MCP_AUTH_TOKEN env var
+export MCP_AUTH_TOKEN=ghp_xxx
+python3 -m mcp_attack --targets https://api.githubcopilot.com/mcp/
+```
+
+### 3. DeepWiki (remote, no-auth)
 
 ```bash
 python3 -m mcp_attack --targets https://mcp.deepwiki.com/mcp
@@ -76,7 +87,7 @@ python3 -m mcp_attack --targets https://mcp.deepwiki.com/mcp
 
 Scans [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki-mcp) — a public MCP server. Use `/mcp` (Streamable HTTP), not `/sse` (deprecated).
 
-### 3. DVMCP port range (all challenges)
+### 4. DVMCP port range (all challenges)
 
 ```bash
 # Start DVMCP first: ./tests/test_dvmcp.sh --setup-only
@@ -85,7 +96,7 @@ python3 -m mcp_attack --port-range localhost:9001-9010 --verbose
 
 Scans DVMCP challenges 1–10. Add `--json report.json` to save findings.
 
-### 4. Targets from file
+### 5. Targets from file
 
 ```bash
 echo "http://localhost:9001/sse" > urls.txt
@@ -95,7 +106,7 @@ python3 -m mcp_attack --targets-file urls.txt
 
 One URL per line; `#` comments ignored.
 
-### 5. Built-in public targets
+### 6. Built-in public targets
 
 ```bash
 python3 -m mcp_attack --public-targets
@@ -103,7 +114,7 @@ python3 -m mcp_attack --public-targets
 
 Uses `mcp_attack/data/public_targets.txt` (DVMCP localhost:9001–9005). Run DVMCP first.
 
-### 6. JSON report
+### 7. JSON report
 
 ```bash
 python3 -m mcp_attack --port-range localhost:9001-9010 --json dvmcp_report.json
@@ -111,7 +122,7 @@ python3 -m mcp_attack --port-range localhost:9001-9010 --json dvmcp_report.json
 
 Writes full report to JSON. Output path is gitignored.
 
-### 7. Differential scan (baseline → compare)
+### 8. Differential scan (baseline → compare)
 
 ```bash
 # First scan: save baseline
@@ -123,7 +134,7 @@ python3 -m mcp_attack --targets http://localhost:9001 --baseline baseline.json
 
 Reports added/removed/modified tools, resources, prompts. New tools flagged as MEDIUM for review.
 
-### 8. Run tests
+### 9. Run tests
 
 ```bash
 python -m pytest mcp_attack/tests/ -v
@@ -131,7 +142,7 @@ python -m pytest mcp_attack/tests/ -v
 
 38 tests: checks (rate_limit, prompt_leakage, supply_chain), CLI, diff, patterns.
 
-### 9. Debug mode
+### 10. Debug mode
 
 ```bash
 python3 -m mcp_attack --targets http://localhost:2266 --debug

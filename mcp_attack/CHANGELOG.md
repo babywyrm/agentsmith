@@ -6,6 +6,8 @@ All notable changes to this submodule are documented here.
 
 ### Added
 
+- **Bearer token auth** — `--auth-token TOKEN` for authenticated MCP endpoints (JWT, PAT, etc.). Env var `MCP_AUTH_TOKEN` supported. Enables scanning GitHub MCP (`https://api.githubcopilot.com/mcp/`), internal services, etc.
+
 - **Differential scanning**
   - `--baseline FILE` — Compare current scan to saved baseline
   - `--save-baseline FILE` — Save current scan as baseline for future comparison

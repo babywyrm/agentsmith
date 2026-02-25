@@ -53,6 +53,8 @@ def main():
         panel_lines.append(f"Baseline: {args.baseline}")
     if args.save_baseline:
         panel_lines.append(f"Save baseline: {args.save_baseline}")
+    if args.auth_token:
+        panel_lines.append("Auth: Bearer token")
 
     console.print(
         Panel(
@@ -66,13 +68,22 @@ def main():
         run_k8s_checks(args.k8s_namespace, console=console)
 
     if len(urls) == 1:
-        results = [scan_target(urls[0], [], timeout=args.timeout, verbose=args.verbose)]
+        results = [
+            scan_target(
+                urls[0],
+                [],
+                timeout=args.timeout,
+                verbose=args.verbose,
+                auth_token=args.auth_token,
+            )
+        ]
     else:
         results = run_parallel(
             urls,
             timeout=args.timeout,
             workers=args.workers,
             verbose=args.verbose,
+            auth_token=args.auth_token,
         )
 
     detect_cross_shadowing(results)

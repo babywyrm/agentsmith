@@ -47,12 +47,15 @@ def scan_target(
     all_results: list[TargetResult],
     timeout: float = 25.0,
     verbose: bool = False,
+    auth_token: str | None = None,
 ) -> TargetResult:
     result = TargetResult(url=url)
     t_start = time.time()
     console.print(f"\n[bold cyan]▶ {url}[/bold cyan]")
 
-    session = detect_transport(url, connect_timeout=timeout, verbose=verbose)
+    session = detect_transport(
+        url, connect_timeout=timeout, verbose=verbose, auth_token=auth_token
+    )
 
     if not session:
         console.print(f"  [red]✗[/red] No MCP transport found on {url}")
@@ -114,6 +117,7 @@ def run_parallel(
     timeout: float = 25.0,
     workers: int = 4,
     verbose: bool = False,
+    auth_token: str | None = None,
 ) -> list[TargetResult]:
     results: list[TargetResult] = []
     lock = threading.Lock()
@@ -136,7 +140,9 @@ def run_parallel(
         def worker(url: str):
             with lock:
                 snapshot = list(results)
-            r = scan_target(url, snapshot, timeout=timeout, verbose=verbose)
+            r = scan_target(
+                url, snapshot, timeout=timeout, verbose=verbose, auth_token=auth_token
+            )
             with lock:
                 results.append(r)
             progress.advance(task)
