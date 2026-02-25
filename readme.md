@@ -408,6 +408,12 @@ agentsmith/
 │   ├── universal_detector.py  # Tech stack detection
 │   └── ...
 │
+├── mcp_attack/                # MCP Red Teaming Scanner (standalone, not yet integrated)
+│   ├── core/                  # Models, session, enumerator
+│   ├── checks/                # Security checks (injection, theft, etc.)
+│   ├── patterns/              # Regex rules
+│   └── README.md              # Usage: python -m mcp_attack --targets URL
+│
 ├── mcp_server/                # MCP Server (SSE + Streamable HTTP)
 │   ├── server.py              # Server entry point (both transports)
 │   ├── tools.py               # 10 tool definitions & handlers
