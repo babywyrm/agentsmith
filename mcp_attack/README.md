@@ -2,6 +2,8 @@
 
 Standalone MCP security scanner for red teaming and auditing. Not yet integrated into the main Agent Smith codebase. Use with [DVMCP](https://github.com/harishsg993010/damn-vulnerable-MCP-server) or any MCP server.
 
+**See [CHANGELOG.md](CHANGELOG.md) for recent changes and planned work.**
+
 ## Install
 
 **Option A — Use project venv (recommended):**
@@ -42,11 +44,108 @@ python3 mcp_audit.py --public-targets
 # JSON report
 python3 mcp_audit.py --port-range localhost:9001-9010 --json report.json
 
+# Differential scan (compare to baseline)
+python3 mcp_audit.py --targets http://localhost:9001 --baseline baseline.json
+
+# Save baseline for future differential scans
+python3 mcp_audit.py --targets http://localhost:9001 --save-baseline baseline.json
+
 # Debug output
 python3 mcp_audit.py --targets http://localhost:2266 --debug
 ```
 
 **Note:** Use `python3` (not `python`). If dependencies are missing, use the project venv: `source .venv/bin/activate` from the agentsmith root, or `pip install httpx rich` in a venv.
+
+## Quickstart Scenarios
+
+Copy-paste commands for common workflows. All assume you're in the agentsmith root with `source .venv/bin/activate` (or `source scripts/activate.sh`).
+
+### 1. Single target scan
+
+```bash
+python3 -m mcp_attack --targets http://localhost:2266
+```
+
+Scan one MCP server. Use your own MCP server URL or Agent Smith MCP (port 2266) for a self-audit.
+
+### 2. DVMCP port range (all challenges)
+
+```bash
+# Start DVMCP first: ./tests/test_dvmcp.sh --setup-only
+python3 -m mcp_attack --port-range localhost:9001-9010 --verbose
+```
+
+Scans DVMCP challenges 1–10. Add `--json report.json` to save findings.
+
+### 3. Targets from file
+
+```bash
+echo "http://localhost:9001/sse" > urls.txt
+echo "http://localhost:9002/sse" >> urls.txt
+python3 -m mcp_attack --targets-file urls.txt
+```
+
+One URL per line; `#` comments ignored.
+
+### 4. Built-in public targets
+
+```bash
+python3 -m mcp_attack --public-targets
+```
+
+Uses `mcp_attack/data/public_targets.txt` (DVMCP localhost:9001–9005). Run DVMCP first.
+
+### 5. JSON report
+
+```bash
+python3 -m mcp_attack --port-range localhost:9001-9010 --json dvmcp_report.json
+```
+
+Writes full report to JSON. Output path is gitignored.
+
+### 6. Differential scan (baseline → compare)
+
+```bash
+# First scan: save baseline
+python3 -m mcp_attack --targets http://localhost:9001 --save-baseline baseline.json
+
+# Later: compare against baseline (detects new/removed/modified tools)
+python3 -m mcp_attack --targets http://localhost:9001 --baseline baseline.json
+```
+
+Reports added/removed/modified tools, resources, prompts. New tools flagged as MEDIUM for review.
+
+### 7. Run tests
+
+```bash
+python -m pytest mcp_attack/tests/ -v
+```
+
+38 tests: checks (rate_limit, prompt_leakage, supply_chain), CLI, diff, patterns.
+
+### 8. Debug mode
+
+```bash
+python3 -m mcp_attack --targets http://localhost:2266 --debug
+```
+
+Verbose output for troubleshooting.
+
+---
+
+## Differential Scanning
+
+Compare current scan to a saved baseline to detect changes (new tools, removed tools, modified descriptions):
+
+```bash
+# First scan: save baseline
+python3 mcp_audit.py --targets http://localhost:9001 --save-baseline baseline.json
+
+# Later: compare against baseline
+python3 mcp_audit.py --targets http://localhost:9001 --baseline baseline.json
+```
+
+Reports added/removed/modified tools, resources, and prompts. New tools are flagged as MEDIUM findings for security review.
 
 ## Structure
 
@@ -56,6 +155,7 @@ mcp_attack/
 ├── patterns/       # Regex rules for injection, poisoning, etc.
 ├── checks/         # Security checks (injection, theft, execution, rate_limit, prompt_leakage, supply_chain, …)
 ├── data/           # Built-in public_targets.txt
+├── diff.py         # Differential scanning (baseline save/load, diff)
 ├── k8s/            # Kubernetes internal checks (optional)
 ├── reporting/      # Console + JSON output
 ├── tests/          # Pytest suite
@@ -80,3 +180,7 @@ python -m pytest mcp_attack/tests/ -v
 ## Exit Code
 
 Exits 1 if any CRITICAL or HIGH findings; 0 otherwise.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and planned work.

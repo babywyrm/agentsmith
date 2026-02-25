@@ -23,6 +23,7 @@ Index of documentation in this directory.
 
 - **Main README**: [../readme.md](../readme.md)
 - **MCP Server**: [../mcp_server/README.md](../mcp_server/README.md)
-- **MCP Red Teaming Scanner**: [../mcp_attack/README.md](../mcp_attack/README.md)
+- **MCP Red Teaming Scanner**: [../mcp_attack/README.md](../mcp_attack/README.md) — includes differential scanning (`--baseline`, `--save-baseline`)
+- **mcp_attack Changelog**: [../mcp_attack/CHANGELOG.md](../mcp_attack/CHANGELOG.md)
 - **MCP Roadmap**: [../mcp_server/ROADMAP.md](../mcp_server/ROADMAP.md)
 - **Tests**: [../tests/README.md](../tests/README.md)

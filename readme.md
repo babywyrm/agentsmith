@@ -410,9 +410,13 @@ agentsmith/
 │
 ├── mcp_attack/                # MCP Red Teaming Scanner (standalone, not yet integrated)
 │   ├── core/                  # Models, session, enumerator
-│   ├── checks/                # Security checks (injection, theft, etc.)
+│   ├── checks/                # Security checks (injection, theft, rate_limit, prompt_leakage, supply_chain, …)
 │   ├── patterns/              # Regex rules
-│   └── README.md              # Usage: python -m mcp_attack --targets URL
+│   ├── data/                  # public_targets.txt
+│   ├── diff.py                # Differential scanning (--baseline, --save-baseline)
+│   ├── tests/                 # Pytest suite (38 tests)
+│   ├── README.md              # Usage: python -m mcp_attack --targets URL
+│   └── CHANGELOG.md           # Submodule changelog & roadmap
 │
 ├── mcp_server/                # MCP Server (SSE + Streamable HTTP)
 │   ├── server.py              # Server entry point (both transports)

@@ -78,6 +78,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Write JSON report to FILE",
     )
     p.add_argument(
+        "--baseline",
+        metavar="FILE",
+        help="Compare against baseline (differential scan)",
+    )
+    p.add_argument(
+        "--save-baseline",
+        metavar="FILE",
+        help="Save current scan as baseline for future differential scans",
+    )
+    p.add_argument(
         "--k8s-namespace",
         metavar="NS",
         default="default",

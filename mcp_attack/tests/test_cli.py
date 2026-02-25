@@ -102,3 +102,14 @@ def test_build_url_list_dedupes():
     args = parse_args(["--targets", "http://a:1", "http://a:1"])
     urls = build_url_list(args)
     assert urls == ["http://a:1"]
+
+
+def test_parse_args_baseline():
+    """--baseline and --save-baseline should be accepted."""
+    args = parse_args(["--targets", "http://localhost:9001", "--baseline", "base.json"])
+    assert args.baseline == "base.json"
+    assert args.save_baseline is None
+
+    args = parse_args(["--targets", "http://localhost:9001", "--save-baseline", "new_base.json"])
+    assert args.save_baseline == "new_base.json"
+    assert args.baseline is None

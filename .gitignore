@@ -66,6 +66,8 @@ security-reports/
 **/threat_model_report.json
 **/dvmcp_report.json
 mcp_attack/*.json
+baseline.json
+baseline_*.json
 **/tech_stack.json
 **/cost_tracking.json
 output.log
