@@ -64,7 +64,7 @@ The server starts on **port 2266** by default with both SSE and Streamable HTTP 
 |------|-------------|
 | `scan_mcp` | Security-scan a remote MCP server: enumerate tools/resources, check auth, analyze for dangerous capabilities and injection vectors |
 
-See [docs/MCP_SCANNING.md](../docs/MCP_SCANNING.md) for the full scanning guide with architecture diagrams, DVMCP walkthrough, and security checks reference. Ideas for future improvements: [mcp_server/ROADMAP.md](ROADMAP.md).
+See [docs/MCP_SCANNING.md](../docs/MCP_SCANNING.md) for the full scanning guide with architecture diagrams, DVMCP walkthrough, and security checks reference. Roadmap: [docs/STRETCH_GOALS.md](../docs/STRETCH_GOALS.md).
 
 ### AI-Powered (requires `CLAUDE_API_KEY` or Bedrock)
 

@@ -197,7 +197,7 @@ python3 agentsmith.py ctf /path/to/ctf "find all vulnerabilities" \
 Combines fast static scanning with AI analysis - best of both worlds:
 
 ```bash
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -246,22 +246,22 @@ One-command configurations for common workflows:
 
 ```bash
 # MCP-optimized (2 files, ~1 min — for MCP shell / Cursor)
-python3 orchestrator.py /path/to/repo ./scanner --preset mcp
+python3 agentsmith.py hybrid /path/to/repo ./scanner --preset mcp
 
 # Quick scan (fast, minimal output)
-python3 orchestrator.py /path/to/repo ./scanner --preset quick
+python3 agentsmith.py hybrid /path/to/repo ./scanner --preset quick
 
 # CTF challenge analysis
-python3 orchestrator.py /path/to/repo ./scanner --preset ctf
+python3 agentsmith.py hybrid /path/to/repo ./scanner --preset ctf
 
 # Full security audit
-python3 orchestrator.py /path/to/repo ./scanner --preset security-audit
+python3 agentsmith.py hybrid /path/to/repo ./scanner --preset security-audit
 
 # Penetration testing
-python3 orchestrator.py /path/to/repo ./scanner --preset pentest
+python3 agentsmith.py hybrid /path/to/repo ./scanner --preset pentest
 
 # List all presets
-python3 orchestrator.py --list-presets
+python3 agentsmith.py hybrid --list-presets
 ```
 
 ## Examples
@@ -306,7 +306,7 @@ python3 agentsmith.py analyze /path/to/repo --resume-review abc123def456
 
 ```bash
 # Focused SQL Injection Hunt with Prioritization
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -318,7 +318,7 @@ python3 orchestrator.py /path/to/repo ./scanner \
   --verbose
 
 # Comprehensive Security Audit
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 25 \
@@ -331,7 +331,7 @@ python3 orchestrator.py /path/to/repo ./scanner \
   --verbose
 
 # Fast Parallel Analysis (Large Repos)
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 15 \
@@ -354,7 +354,7 @@ rules/
 
 ### Auto-Loading
 
-In hybrid mode (`orchestrator.py`), all rule files from `rules/` are **automatically loaded**. No need to specify `--static-rules` unless you want to use custom rules.
+In hybrid mode (`agentsmith.py hybrid`), all rule files from `rules/` are **automatically loaded**. No need to specify `--static-rules` unless you want to use custom rules.
 
 ### Custom Rules
 
@@ -362,11 +362,11 @@ You can provide your own rule files or override the defaults:
 
 ```bash
 # Use only custom rules
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --static-rules ./my-rules.json
 
 # Use multiple custom rule files
-python3 orchestrator.py /path/to/repo ./scanner \
+python3 agentsmith.py hybrid /path/to/repo ./scanner \
   --static-rules ./rules/rules_core.json,./my-extra-rules.json
 ```
 
@@ -401,9 +401,9 @@ go run gen_rule_json.go rules.go > rules/rules_core.json
 agentsmith/
 │
 ├── agentsmith.py              # Main CLI entry point — unified mode dispatcher
-├── orchestrator.py            # Hybrid static + AI orchestrator (recommended)
-├── smart_analyzer.py          # AI-powered multi-stage analyzer
-├── ctf_analyzer.py            # CTF-focused analyzer
+├── orchestrator.py            # Hybrid static + AI orchestrator (used by agentsmith.py hybrid)
+├── smart_analyzer.py          # AI multi-stage analyzer (used by agentsmith.py analyze)
+├── ctf_analyzer.py            # CTF analyzer (used by agentsmith.py ctf)
 ├── summarize.py               # Scan results summarizer
 │
 ├── agentsmith.go              # Go scanner source code
@@ -552,7 +552,7 @@ API Usage Summary
 
 | Use Case | Command | When |
 |----------|---------|------|
-| **Hybrid scan (CLI)** | `python3 orchestrator.py /path ./scanner --preset quick` | Full static + AI analysis from terminal |
+| **Hybrid scan (CLI)** | `python3 agentsmith.py hybrid /path ./scanner --preset quick` | Full static + AI analysis from terminal |
 | **MCP shell (interactive)** | `./scripts/run_mcp_shell.sh` → `scan_hybrid`, `scan_mcp`, etc. at `mcp>` | Cursor integration, ad-hoc scans, MCP server auditing |
 | **Static only** | `python3 agentsmith.py static . --severity HIGH` | CI/CD, no API key |
 | **AI deep dive** | `python3 agentsmith.py analyze . "question" --prioritize` | Comprehensive review with review state |
@@ -562,7 +562,7 @@ API Usage Summary
 1. **For CI/CD**: Use `static` mode with `--severity HIGH` and `--fail-on HIGH` for fast, free checks. See `examples/ci-gate.yml` and `examples/pre-commit-hook.sh`.
 2. **For Deep Reviews**: Use `analyze` mode with `--enable-review-state`
 3. **For CTF Challenges**: Use `ctf` mode for quick vulnerability discovery
-4. **For Comprehensive Analysis**: Use `orchestrator.py` or `agentsmith.py hybrid` with `--prioritize` (RECOMMENDED)
+4. **For Comprehensive Analysis**: Use `agentsmith.py hybrid` with `--prioritize` (RECOMMENDED)
 5. **For MCP/Cursor**: Use `./scripts/run_mcp_shell.sh` — scan repos and MCP servers from the interactive shell
 6. **Save Time & Cost**: Always use `--prioritize` for repos with 50+ files
 7. **Be Specific**: Use detailed `--question` for better prioritization results
@@ -590,32 +590,22 @@ python3 agentsmith.py <mode> --help
 # Comprehensive examples (analyze mode)
 python3 agentsmith.py analyze --help-examples
 
-# Orchestrator help (hybrid mode)
-python3 orchestrator.py --help
-
 # List available presets
-python3 orchestrator.py --list-presets
+python3 agentsmith.py hybrid --list-presets
 
 # List available AI profiles
-python3 orchestrator.py --list-profiles
+python3 agentsmith.py hybrid --list-profiles
 ```
 
-### Direct Script Access
+### Direct Script Access (Advanced)
 
-You can also run scripts directly (advanced usage):
+The underlying scripts can be called directly if needed, but `agentsmith.py` is the recommended entry point for all users:
 
 ```bash
-# AI analyzer (called by agentsmith.py analyze)
-python3 smart_analyzer.py /path/to/repo "question"
-
-# CTF analyzer (called by agentsmith.py ctf)
-python3 ctf_analyzer.py /path/to/ctf "question"
-
-# Hybrid orchestrator (use directly for all features)
-python3 orchestrator.py /path/to/repo ./scanner --profile owasp
+python3 orchestrator.py /path/to/repo ./scanner --profile owasp  # same as agentsmith.py hybrid
+python3 smart_analyzer.py /path/to/repo "question"               # same as agentsmith.py analyze
+python3 ctf_analyzer.py /path/to/ctf "question"                  # same as agentsmith.py ctf
 ```
-
-**Note:** For most users, `agentsmith.py` is the recommended entry point.
 
 ## MCP Server
 
@@ -678,9 +668,9 @@ See [mcp_server/README.md](mcp_server/README.md) for full MCP documentation. [do
 
 Agent Smith uses a modular architecture:
 
-- **Entry Point**: `agentsmith.py` - Unified CLI dispatcher
-- **Analyzers**: `smart_analyzer.py`, `ctf_analyzer.py` - AI-powered analysis
-- **Orchestrator**: `orchestrator.py` - Hybrid static + AI
+- **Entry Point**: `agentsmith.py` - Unified CLI (static, analyze, ctf, hybrid)
+- **Hybrid Engine**: `orchestrator.py` - Static + AI orchestration
+- **AI Engines**: `smart_analyzer.py`, `ctf_analyzer.py`
 - **MCP Server**: `mcp_server/` - SSE-based Model Context Protocol server
 - **AI Provider**: `lib/ai_provider.py` - Anthropic API / AWS Bedrock abstraction
 - **Library**: `lib/` - Shared modules (common, models, output, context, prompts)
@@ -736,7 +726,7 @@ python3 agentsmith.py static . --severity HIGH
 **Comprehensive AI analysis (requires API key):**
 ```bash
 export CLAUDE_API_KEY="your_key_here"
-python3 orchestrator.py . ./scanner \
+python3 agentsmith.py hybrid . ./scanner \
   --profile owasp \
   --prioritize \
   --prioritize-top 20 \
@@ -750,5 +740,5 @@ python3 orchestrator.py . ./scanner \
 **Get help:**
 ```bash
 python3 agentsmith.py --help
-python3 orchestrator.py --help
+python3 agentsmith.py hybrid --help
 ```

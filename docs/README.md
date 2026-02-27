@@ -2,27 +2,34 @@
 
 Index of documentation in this directory.
 
+## User Guides
+
 | Document | Purpose |
 |----------|---------|
 | [../QUICKSTART.md](../QUICKSTART.md) | Copy-paste commands for top 12 use cases (CLI + MCP shell) |
-| [../examples/README.md](../examples/README.md) | CI gate, pre-commit hook examples |
-| [USE_CASES.md](USE_CASES.md) | Detailed workflows: simple to complex (static, CTF, hybrid, compliance) — verbose companion to QUICKSTART |
-| [ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md) | Multi-profile scans, deduplication, advanced orchestrator workflows |
+| [USE_CASES.md](USE_CASES.md) | Detailed workflows: simple to complex (static, CTF, hybrid, compliance) |
+| [ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md) | Multi-profile scans, deduplication, advanced workflows |
 | [PROFILES.md](PROFILES.md) | AI profile guide: owasp, ctf, soc2, compliance, code_review, etc. |
-| [MCP_SCANNING.md](MCP_SCANNING.md) | `scan_mcp` tool: security-scan MCP servers, DVMCP walkthrough, heuristics |
+| [MCP_SCANNING.md](MCP_SCANNING.md) | `scan_mcp` tool: security-scan MCP servers, DVMCP walkthrough |
 | [REVIEW_STATE.md](REVIEW_STATE.md) | Review state management, caching, resume, checkpoints |
-| [DEDUPLICATION_FLOW.md](DEDUPLICATION_FLOW.md) | How deduplication works (opt-in, flow, merge strategies) |
+| [../examples/README.md](../examples/README.md) | CI gate, pre-commit hook examples |
+
+## Developer Reference
+
+| Document | Purpose |
+|----------|---------|
 | [AGENTSMITH_CONTEXT_README.md](AGENTSMITH_CONTEXT_README.md) | Context library API: `ReviewContextManager`, caching, cost tracking |
+| [DEDUPLICATION_FLOW.md](DEDUPLICATION_FLOW.md) | How deduplication works (opt-in, flow, merge strategies) |
+| [STATIC_SCANNER_STRATEGY.md](STATIC_SCANNER_STRATEGY.md) | Static scanner as prioritization engine |
 | [CHANGELOG.md](CHANGELOG.md) | Release history and changes |
-| [STATIC_SCANNER_STRATEGY.md](STATIC_SCANNER_STRATEGY.md) | Static scanner as prioritization engine, improvement roadmap |
-| [../rules/CHANGELOG.md](../rules/CHANGELOG.md) | Rules changelog — additions and changes |
-| [STRETCH_GOALS.md](STRETCH_GOALS.md) | Internal: stretch goals and improvement roadmap |
+| [STRETCH_GOALS.md](STRETCH_GOALS.md) | Consolidated roadmap and improvement backlog |
 
-## Quick Links
+## Other
 
-- **Main README**: [../readme.md](../readme.md)
-- **MCP Server**: [../mcp_server/README.md](../mcp_server/README.md)
-- **MCP Red Teaming Scanner**: [../mcp_attack/README.md](../mcp_attack/README.md) — includes differential scanning (`--baseline`, `--save-baseline`)
-- **mcp_attack Changelog**: [../mcp_attack/CHANGELOG.md](../mcp_attack/CHANGELOG.md)
-- **MCP Roadmap**: [../mcp_server/ROADMAP.md](../mcp_server/ROADMAP.md)
-- **Tests**: [../tests/README.md](../tests/README.md)
+| Document | Purpose |
+|----------|---------|
+| [../readme.md](../readme.md) | Main README |
+| [../mcp_server/README.md](../mcp_server/README.md) | MCP server documentation |
+| [../mcp_attack/README.md](../mcp_attack/README.md) | MCP red teaming scanner |
+| [../tests/README.md](../tests/README.md) | Test suite |
+| [../rules/CHANGELOG.md](../rules/CHANGELOG.md) | Rules changelog |

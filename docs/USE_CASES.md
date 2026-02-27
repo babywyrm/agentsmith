@@ -31,13 +31,13 @@ python3 agentsmith.py static ./myapp --severity HIGH
 
 ```bash
 # See all presets
-python3 orchestrator.py --list-presets
+python3 agentsmith.py hybrid --list-presets
 
 # See all AI profiles
-python3 orchestrator.py --list-profiles
+python3 agentsmith.py hybrid --list-profiles
 
 # Detect tech stack (understand your codebase)
-python3 orchestrator.py ./myapp --detect-tech-stack
+python3 agentsmith.py hybrid ./myapp --detect-tech-stack
 ```
 
 **When to use:** First time using Agent Smith, exploring a new codebase
@@ -51,7 +51,7 @@ python3 orchestrator.py ./myapp --detect-tech-stack
 ```bash
 export CLAUDE_API_KEY="your-key"
 
-python3 orchestrator.py ./ctf-challenge ./scanner \
+python3 agentsmith.py hybrid ./ctf-challenge ./scanner \
   --preset ctf-fast
 
 # Takes: ~1-2 minutes
@@ -72,7 +72,7 @@ python3 orchestrator.py ./ctf-challenge ./scanner \
 **Scenario:** You want comprehensive CTF analysis with attack chains.
 
 ```bash
-python3 orchestrator.py ./ctf-challenge ./scanner \
+python3 agentsmith.py hybrid ./ctf-challenge ./scanner \
   --preset ctf \
   --show-chains
 
@@ -132,7 +132,7 @@ mcp> scan_hybrid profile=owasp prioritize_top=10 top_n=8 question="find SQL inje
 **Scenario:** Security audit of production application.
 
 ```bash
-python3 orchestrator.py ./production-app ./scanner \
+python3 agentsmith.py hybrid ./production-app ./scanner \
   --preset security-audit \
   --output-dir ./reports/prod-audit-2026-01
 
@@ -157,7 +157,7 @@ python3 orchestrator.py ./production-app ./scanner \
 **Scenario:** Full penetration test with all features.
 
 ```bash
-python3 orchestrator.py ./target-app ./scanner \
+python3 agentsmith.py hybrid ./target-app ./scanner \
   --preset pentest \
   --question "find authentication bypass, broken access control, and RCE" \
   --top 15
@@ -187,7 +187,7 @@ python3 orchestrator.py ./target-app ./scanner \
 
 **Spring Boot / Java Microservices:**
 ```bash
-python3 orchestrator.py ./spring-app ./scanner \
+python3 agentsmith.py hybrid ./spring-app ./scanner \
   --profile springboot,owasp \
   --prioritize --prioritize-top 25 \
   --question "find actuator exposure, SpEL injection, and Spring Security misconfigs"
@@ -197,7 +197,7 @@ Focuses on: @RestController entry points, SecurityConfig, application.yml creden
 
 **C++ / Conan Native Code:**
 ```bash
-python3 orchestrator.py ./cpp-project ./scanner \
+python3 agentsmith.py hybrid ./cpp-project ./scanner \
   --profile cpp_conan \
   --prioritize --prioritize-top 30 \
   --question "find buffer overflows, use-after-free, and format string bugs"
@@ -207,7 +207,7 @@ Focuses on: Memory safety (CWE-120/416/415), unsafe C functions, CMake FetchCont
 
 **Flask / Python Web App:**
 ```bash
-python3 orchestrator.py ./flask-app ./scanner \
+python3 agentsmith.py hybrid ./flask-app ./scanner \
   --profile flask,owasp \
   --prioritize --prioritize-top 20 \
   --question "find SSTI, SQLAlchemy injection, and debug mode exposure"
@@ -224,7 +224,7 @@ Focuses on: Jinja2 SSTI, app.run(debug=True), weak SECRET_KEY, SQLAlchemy raw SQ
 **Scenario:** Want different perspectives on the same code.
 
 ```bash
-python3 orchestrator.py ./webapp ./scanner \
+python3 agentsmith.py hybrid ./webapp ./scanner \
   --profile ctf,owasp,code_review \
   --prioritize-top 20 \
   --deduplicate \
@@ -252,10 +252,10 @@ python3 orchestrator.py ./webapp ./scanner \
 
 ```bash
 # Step 1: Understand the tech stack
-python3 orchestrator.py ~/htb/machine/src --detect-tech-stack
+python3 agentsmith.py hybrid ~/htb/machine/src --detect-tech-stack
 
 # Step 2: Run comprehensive analysis
-python3 orchestrator.py ~/htb/machine/src ./scanner \
+python3 agentsmith.py hybrid ~/htb/machine/src ./scanner \
   --preset ctf \
   --show-chains \
   --question "find path traversal, command injection, auth bypass, and flag locations" \
@@ -280,7 +280,7 @@ python3 orchestrator.py ~/htb/machine/src ./scanner \
 
 ```bash
 # Quick recon
-python3 orchestrator.py ./target-app ./scanner \
+python3 agentsmith.py hybrid ./target-app ./scanner \
   --preset ctf-fast \
   --prioritize-top 10 \
   --question "find authentication bypass, IDOR, and injection vulnerabilities"
@@ -290,7 +290,7 @@ python3 orchestrator.py ./target-app ./scanner \
 # Perfect for: Initial reconnaissance
 
 # If you find something, deep dive:
-python3 orchestrator.py ./target-app/suspicious-module ./scanner \
+python3 agentsmith.py hybrid ./target-app/suspicious-module ./scanner \
   --preset ctf \
   --show-chains \
   --question "analyze specific vulnerability type" \
@@ -305,7 +305,7 @@ python3 orchestrator.py ./target-app/suspicious-module ./scanner \
 
 ```bash
 # In your CI pipeline (.github/workflows/security.yml)
-python3 orchestrator.py ./src ./scanner \
+python3 agentsmith.py hybrid ./src ./scanner \
   --preset quick \
   --severity HIGH \
   --output-dir ./security-reports
@@ -323,7 +323,7 @@ python3 orchestrator.py ./src ./scanner \
 ### Scenario D: Compliance Audit (SOC2, PCI-DSS)
 
 ```bash
-python3 orchestrator.py ./production-app ./scanner \
+python3 agentsmith.py hybrid ./production-app ./scanner \
   --preset compliance \
   --question "verify SOC2 security controls and PCI-DSS compliance" \
   --output-dir ./compliance-reports-2026
@@ -346,12 +346,12 @@ python3 orchestrator.py ./production-app ./scanner \
 
 ```bash
 # Scan low.php
-python3 orchestrator.py tests/test_targets/DVWA/vulnerabilities/sqli/source/low.php ./scanner \
+python3 agentsmith.py hybrid tests/test_targets/DVWA/vulnerabilities/sqli/source/low.php ./scanner \
   --profile owasp \
   --annotate-code
 
 # Scan impossible.php
-python3 orchestrator.py tests/test_targets/DVWA/vulnerabilities/sqli/source/impossible.php ./scanner \
+python3 agentsmith.py hybrid tests/test_targets/DVWA/vulnerabilities/sqli/source/impossible.php ./scanner \
   --profile owasp \
   --annotate-code
 
@@ -365,7 +365,7 @@ python3 orchestrator.py tests/test_targets/DVWA/vulnerabilities/sqli/source/impo
 **Scenario:** You want to know API costs before running expensive scan.
 
 ```bash
-python3 orchestrator.py ./large-repo ./scanner \
+python3 agentsmith.py hybrid ./large-repo ./scanner \
   --preset security-audit \
   --estimate-cost
 
@@ -384,7 +384,7 @@ python3 orchestrator.py ./large-repo ./scanner \
 ### Custom Scan with All Features
 
 ```bash
-python3 orchestrator.py ./target ./scanner \
+python3 agentsmith.py hybrid ./target ./scanner \
   --profile ctf,owasp \
   --prioritize --prioritize-top 20 \
   --question "find RCE, SQLi, and auth bypass" \
@@ -487,29 +487,29 @@ python3 agentsmith.py analyze ./app --resume-review abc123
 python3 agentsmith.py static . --severity HIGH
 
 # Found issue: Deep dive
-python3 orchestrator.py ./problematic-module ./scanner --preset ctf-fast
+python3 agentsmith.py hybrid ./problematic-module ./scanner --preset ctf-fast
 ```
 
 ### Security Researcher Workflow
 ```bash
 # 1. Reconnaissance
-python3 orchestrator.py ./target --detect-tech-stack
+python3 agentsmith.py hybrid ./target --detect-tech-stack
 
 # 2. Initial scan
-python3 orchestrator.py ./target ./scanner --preset ctf --top 10
+python3 agentsmith.py hybrid ./target ./scanner --preset ctf --top 10
 
 # 3. Deep dive on findings
-python3 orchestrator.py ./target/vulnerable-file.php ./scanner \
+python3 agentsmith.py hybrid ./target/vulnerable-file.php ./scanner \
   --profile owasp --annotate-code --show-chains
 ```
 
 ### CTF Player Workflow
 ```bash
 # 1. Fast scan to find obvious issues
-python3 orchestrator.py ./challenge ./scanner --preset ctf-fast
+python3 agentsmith.py hybrid ./challenge ./scanner --preset ctf-fast
 
 # 2. If no obvious wins, full analysis
-python3 orchestrator.py ./challenge ./scanner \
+python3 agentsmith.py hybrid ./challenge ./scanner \
   --preset ctf \
   --show-chains \
   --question "find flag locations and RCE vectors"
@@ -561,7 +561,7 @@ See [mcp_server/README.md](../mcp_server/README.md) and [MCP_SCANNING.md](MCP_SC
 **Your first scan:**
 ```bash
 export CLAUDE_API_KEY="your-key"
-python3 orchestrator.py ./target ./scanner --preset ctf --verbose
+python3 agentsmith.py hybrid ./target ./scanner --preset ctf --verbose
 ```
 
 **Wait for interactive prompt, type a number (like 5) to analyze fewer files.**

@@ -21,9 +21,9 @@ python3 agentsmith.py static . --severity HIGH
 ### 2. List options & detect tech stack
 
 ```bash
-python3 orchestrator.py --list-presets
-python3 orchestrator.py --list-profiles
-python3 orchestrator.py ./myapp --detect-tech-stack
+python3 agentsmith.py hybrid --list-presets
+python3 agentsmith.py hybrid --list-profiles
+python3 agentsmith.py hybrid ./myapp --detect-tech-stack
 ```
 
 First-time setup, exploring a new codebase
@@ -33,7 +33,7 @@ First-time setup, exploring a new codebase
 ### 3. CTF fast recon
 
 ```bash
-python3 orchestrator.py ./ctf-challenge ./scanner --preset ctf-fast
+python3 agentsmith.py hybrid ./ctf-challenge ./scanner --preset ctf-fast
 ```
 
 ~1–2 min · ~$0.02–0.03 · Top 8 files · Quick wins
@@ -43,7 +43,7 @@ python3 orchestrator.py ./ctf-challenge ./scanner --preset ctf-fast
 ### 4. Full CTF analysis
 
 ```bash
-python3 orchestrator.py ./ctf-challenge ./scanner --preset ctf --show-chains
+python3 agentsmith.py hybrid ./ctf-challenge ./scanner --preset ctf --show-chains
 ```
 
 ~3–5 min · ~$0.06–0.10 · Top 15 files · Attack chains, payloads
@@ -53,7 +53,7 @@ python3 orchestrator.py ./ctf-challenge ./scanner --preset ctf --show-chains
 ### 5. Targeted vulnerability hunt
 
 ```bash
-python3 orchestrator.py ./webapp ./scanner --preset ctf \
+python3 agentsmith.py hybrid ./webapp ./scanner --preset ctf \
   --question "find SQL injection in database queries and API endpoints" \
   --show-chains --top 8
 ```
@@ -65,7 +65,7 @@ python3 orchestrator.py ./webapp ./scanner --preset ctf \
 ### 6. Production security audit
 
 ```bash
-python3 orchestrator.py ./production-app ./scanner \
+python3 agentsmith.py hybrid ./production-app ./scanner \
   --preset security-audit \
   --output-dir ./reports/prod-audit
 ```
@@ -77,7 +77,7 @@ python3 orchestrator.py ./production-app ./scanner \
 ### 7. CI/CD gate
 
 ```bash
-python3 orchestrator.py ./src ./scanner --preset quick --severity HIGH --output-dir ./security-reports
+python3 agentsmith.py hybrid ./src ./scanner --preset quick --severity HIGH --output-dir ./security-reports
 ```
 
 ~30–60 sec · ~$0.01–0.02 · JSON for automation
@@ -100,13 +100,13 @@ Large codebases, interrupted scans
 
 ```bash
 # Spring Boot / Java microservices
-python3 orchestrator.py ./spring-app ./scanner --profile springboot,owasp --prioritize --prioritize-top 25
+python3 agentsmith.py hybrid ./spring-app ./scanner --profile springboot,owasp --prioritize --prioritize-top 25
 
 # C++ / Conan native code (memory safety, supply-chain)
-python3 orchestrator.py ./cpp-project ./scanner --profile cpp_conan --prioritize --prioritize-top 30
+python3 agentsmith.py hybrid ./cpp-project ./scanner --profile cpp_conan --prioritize --prioritize-top 30
 
 # Flask / Python web app (SSTI, SQLAlchemy, debug mode)
-python3 orchestrator.py ./flask-app ./scanner --profile flask,owasp --prioritize --prioritize-top 20
+python3 agentsmith.py hybrid ./flask-app ./scanner --profile flask,owasp --prioritize --prioritize-top 20
 ```
 
 ~3-10 min · Profile-specific prioritization automatically guides file selection
