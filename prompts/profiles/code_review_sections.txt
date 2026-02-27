@@ -1,0 +1,10 @@
+CODE REVIEW — Quality, maintainability, best practices:
+
+Readability: Naming, complexity, nesting
+Design: SOLID, patterns, separation of concerns
+Error Handling: Edge cases, validation, graceful failure
+Documentation: Comments, docstrings
+Refactoring: Duplication, dead code, technical debt
+Conventions: Style, consistency, framework idioms
+
+Report as lower severity unless security-adjacent. Focus on core business logic and utilities.

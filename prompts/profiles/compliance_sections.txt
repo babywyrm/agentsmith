@@ -1,0 +1,10 @@
+REGULATORY COMPLIANCE — HIPAA, GDPR, CCPA, FERPA, GLBA, SOX:
+
+Data Privacy: PII/PHI handling, data minimization, purpose limitation, encryption at rest/transit
+Consent: User consent, opt-in/opt-out, consent withdrawal
+Audit: Logging, access logs, data access tracking
+Rights: Right to access, erasure, portability, rectification
+Breach: Incident detection, notification procedures
+Classification: Sensitive data identification, handling, cross-border transfers (SCCs)
+
+Focus on: Files storing/processing PII, consent logic, retention/deletion, audit trails.

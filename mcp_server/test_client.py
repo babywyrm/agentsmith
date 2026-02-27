@@ -1052,11 +1052,17 @@ async def _run_full_scan(session, tools: dict, repo_path: str, spinner: Spinner)
 
 
 def _parse_key_value_args(text: str) -> dict | None:
-    """Parse 'key=value key2=value2' into a dict. Returns None on failure."""
+    """Parse 'key=value key2=value2' into a dict. Supports quoted values with spaces.
+    Returns None on failure."""
+    import shlex
     if not text or text.strip().startswith("{"):
         return None
     args = {}
-    for token in text.split():
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        return None
+    for token in tokens:
         if "=" not in token:
             return None
         key, _, val = token.partition("=")

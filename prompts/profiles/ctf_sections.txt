@@ -1,0 +1,8 @@
+CTF / EXPLOITATION — Speed-to-flag mindset:
+
+Instant win: Hardcoded flags/secrets, eval/exec with user input, path traversal to /flag.txt, auth bypass, SQLi with FILE privileges, command injection
+Quick: File upload → webshell, SSRF to 169.254.169.254, insecure deserialization, XXE, NoSQL injection, JWT vulns, SSTI, race conditions
+Look for: "flag{", "HTB{", "CTF{", /flag.txt, .env, config.py, eval, exec, pickle.loads, system(), shell=True
+
+For each finding: TIME TO EXPLOIT (<1min=CRITICAL, <10min=HIGH), PATH TO FLAG (direct vs chained), EXPLOITATION CONFIDENCE.
+Include payload_example and exploitation_steps when applicable.

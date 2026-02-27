@@ -1,0 +1,12 @@
+MODERN SECURITY — Cloud-native, DevSecOps, zero-trust:
+
+Zero Trust: Least privilege, explicit verification, assume breach
+Supply Chain: Dependency vulns, SBOM, package integrity, lock files
+Cloud: IAM policies, secrets management, container security
+API: Rate limiting, auth, input validation
+Secrets: No hardcoded secrets, rotation, secure storage
+IaC: Secure patterns, least privilege, audit trails
+Container: Image scanning, minimal base, non-root
+CI/CD: Secure pipelines, artifact signing
+Observability: Security logging, monitoring, traceability
+Microservices: Service mesh, inter-service auth, API gateways

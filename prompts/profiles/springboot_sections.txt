@@ -1,0 +1,10 @@
+SPRING BOOT / JAVA MICROSERVICES — Framework-specific checks:
+
+Actuator & Config: /actuator/* exposed without auth, secrets in application.yml, DevTools in prod, CORS allowedOrigins="*", H2 console in prod
+Injection: SpEL injection, JPA/HQL/JPQL string concat, @Query with concatenated params, LDAP injection
+Auth & Authz: permitAll on sensitive endpoints, missing @PreAuthorize/@Secured, weak OAuth2/JWT validation, hardcoded creds, session fixation, CSRF disabled
+Mass Assignment: @RequestBody/@ModelAttribute binding untrusted fields, Jackson enableDefaultTyping, missing @JsonIgnore on sensitive fields
+Microservices: Eureka/Consul without auth, Gateway route misconfig, inter-service calls without mTLS, Feign ignoring SSL, Kafka/RabbitMQ without auth
+Error Handling: Stack traces to clients, verbose errors, missing @ControllerAdvice
+
+Prioritize: Actuator exposure, SpEL injection, SQLi in repositories, auth bypass.

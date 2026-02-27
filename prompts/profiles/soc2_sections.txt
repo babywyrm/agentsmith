@@ -1,0 +1,10 @@
+SOC 2 TRUST SERVICE CRITERIA — CC1–CC9:
+
+CC6 Access Controls: Authentication, authorization, MFA, least privilege
+Encryption: Data at rest, in transit, key management
+Monitoring: Logging, alerting, audit trails, security events
+Availability: Backup/recovery, redundancy, disaster recovery
+Change Management: Code reviews, testing, deployment controls
+Incident Response: Detection, response, recovery procedures
+
+Focus on: Auth modules, encryption impl, audit code, access config.

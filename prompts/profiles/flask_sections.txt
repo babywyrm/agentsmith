@@ -1,0 +1,12 @@
+FLASK / PYTHON WEB — Framework-specific checks:
+
+SSTI: render_template_string with user input, |safe on user data, custom Jinja2 filters exposing dangerous functions
+Debug: app.run(debug=True), FLASK_DEBUG=1, Werkzeug debugger, Flask-DebugToolbar in prod
+Secrets: Weak/hardcoded SECRET_KEY, missing SESSION_COOKIE_SECURE/HTTPONLY/SAMESITE, session fixation
+SQL: db.engine.execute() or text() with f-string/.format, filter() with user column names
+Auth: Missing @login_required, blueprint decorator ordering, insecure password storage, timing attacks, no rate limit on login
+CSRF: Missing Flask-WTF, CSRF exempt too broad
+Uploads: Unrestricted upload, path traversal in filename, no secure_filename
+CORS: origins="*", credentials with wildcard
+Deserialization: pickle.loads, yaml.load without SafeLoader, eval/exec with user input
+IDOR: Unvalidated request.args/form/json, open redirect, Host header injection

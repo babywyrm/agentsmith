@@ -1,0 +1,11 @@
+C/C++ NATIVE & BUILD CHAIN — Memory safety and supply chain:
+
+Buffer Overflow: strcpy, strcat, sprintf, gets, scanf without bounds; memcpy/strncpy unchecked sizes; VLA with unchecked sizes
+Use-After-Free: free() then use, double-free, realloc dangling, returning stack pointers, missing RAII/smart pointers
+Format String: printf(user_input) instead of printf("%s", user_input)
+Integer: Overflow in malloc sizes, signed/unsigned mismatch, truncation, unchecked loop bounds
+Unsafe C: gets→fgets, strcpy→strncpy, sprintf→snprintf, atoi→strtol, system/popen injection risk
+Null/Uninit: Deref without NULL check, uninitialized vars, missing error checks (fopen, malloc)
+Concurrency: Data races, TOCTOU, deadlock-prone locking
+Crypto: rand() instead of CSPRNG, hardcoded keys/IVs, DES/RC4/MD5
+CMake/Conan: FetchContent without GIT_TAG hash, ExternalProject over HTTP, Conan unpinned, missing -fstack-protector-strong, -D_FORTIFY_SOURCE=2

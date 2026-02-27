@@ -27,7 +27,7 @@ TAINT ANALYSIS METHODOLOGY:
    - Allowlisting
    - Framework protections
 
-{context}
+{app_context}
 
 CRITICAL: Respond with ONLY valid JSON:
 {{

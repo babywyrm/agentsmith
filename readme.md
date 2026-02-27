@@ -1,5 +1,9 @@
 # Agent Smith - Unified Security Scanner
 
+<p align="center">
+  <img src="docs/assets/agentsmith-hero.png" alt="Agent Smith" width="600">
+</p>
+
 > Do you hate reviews?  
 > Do you love CTFs?  
 > Do you hate java controllers?  
@@ -93,6 +97,16 @@ export CLAUDE_API_KEY="sk-ant-api03-..."
 ./scripts/setup.sh --python    # Python-only (skip Go build)
 ./scripts/setup.sh --go        # Go-only (build scanner binary)
 ```
+
+### Running Tests
+
+```bash
+./scripts/run_tests.sh              # Run pytest (uses .venv, excludes test_targets)
+./scripts/run_tests.sh -v            # Verbose
+./scripts/run_tests.sh --all        # Include test_targets (pip install requests first)
+```
+
+Or directly: `source .venv/bin/activate && python3 -m pytest tests/ -v --ignore=tests/test_targets`
 
 ## Usage
 
@@ -436,11 +450,12 @@ agentsmith/
 │   ├── rules_cicd.json        # CI/CD pipeline security
 │   └── rules_supplychain.json # Supply chain security
 │
-├── prompts/                   # AI prompt templates (per profile)
-│   ├── owasp_profile.txt
+├── prompts/                   # AI prompt templates (modular + legacy)
+│   ├── base/                  # Shared methodology & schema
+│   ├── profiles/              # Profile-specific sections (merged when multi-profile)
+│   ├── owasp_profile.txt      # Legacy full templates
 │   ├── ctf_enhanced_profile.txt
-│   ├── attacker_profile.txt
-│   └── ...
+│   └── ...                    # See prompts/README.md for maintenance
 │
 ├── scripts/                   # Setup & utility scripts
 │   ├── setup.sh               # Full setup (Go + Python)

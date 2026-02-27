@@ -1,0 +1,10 @@
+PERFORMANCE — Bottlenecks and optimization:
+
+N+1 queries: Loops with per-iteration DB calls
+Inefficient algorithms: O(n²) where O(n) possible, unnecessary allocations
+Memory: Leaks, large allocations, unbounded growth
+Blocking I/O: Sync calls in hot paths
+String ops: Excessive concatenation, regex in loops
+Caching: Missed cache opportunities, cache invalidation issues
+
+Focus on: Repositories, DAOs, services, workers, batch processors.

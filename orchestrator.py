@@ -39,6 +39,7 @@ from lib.deduplication import deduplicate_findings
 from lib.cost_tracker import CostTracker
 from lib.cost_estimator import estimate_scan_cost
 from lib.profile_metadata import list_profiles_by_category, get_all_profiles, get_prioritization_hints_for_profiles
+from lib.prompt_composer import compose_prompt, has_composed_support
 from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector
 from lib.tech_detector import EnhancedTechDetector, generate_framework_aware_prioritization_question
 from lib.universal_detector import UniversalTechDetector
@@ -205,7 +206,9 @@ class Orchestrator:
         }
 
     def _load_prompt_templates(self) -> Dict[str, str]:
-        """Load profile-specific AI prompts from prompts/ directory."""
+        """Load profile-specific AI prompts from prompts/ directory.
+        When modular prompts exist (base + profile sections), composes a merged
+        prompt for all file profiles — one API call per file instead of N."""
         templates: Dict[str, str] = {}
         profiles_to_load = self.profiles[:]
         if self.threat_model and 'attacker' not in profiles_to_load:
@@ -235,7 +238,16 @@ class Orchestrator:
             
             templates[profile] = prompt_file.read_text(encoding="utf-8")
         
-        self.console.print(f"[dim]   (Loaded {len(templates)} prompt templates)[/dim]")
+        # Try modular composed prompt for file profiles (excludes attacker — different flow)
+        file_profiles = [p for p in self.profiles if p != 'attacker']
+        if file_profiles and has_composed_support(file_profiles):
+            composed = compose_prompt(file_profiles, use_legacy_fallback=True)
+            if composed:
+                templates["_merged"] = composed
+                if self.verbose:
+                    self.console.print(f"[dim]   Using modular composed prompt for: {', '.join(file_profiles)}[/dim]")
+        
+        self.console.print(f"[dim]   (Loaded {len([k for k in templates if not k.startswith('_')])} prompt templates)[/dim]")
         return templates
 
     def _meets_severity_threshold(self, finding_severity: str) -> bool:
@@ -671,26 +683,29 @@ class Orchestrator:
         self.console.print(f"[dim]Running Claude File-by-File Analysis ({run_mode} mode) on {len(files)} files[/dim]")
         
         file_profiles = [p for p in self.profiles if p != 'attacker']
-        for profile in file_profiles:
-            self.console.print(f"\n[bold yellow]--- Starting AI Profile: {profile} ---[/bold yellow]")
+        use_merged = "_merged" in self.prompt_templates
+        profiles_to_run = ["_merged"] if use_merged else file_profiles
+        source_label = "+".join(file_profiles) if use_merged else None
+        
+        for profile in profiles_to_run:
+            display_name = source_label or profile
+            self.console.print(f"\n[bold yellow]--- Starting AI Profile: {display_name} ---[/bold yellow]")
             profile_findings: List[Finding] = []
             
-            def process_and_log(full_result: Optional[Dict[str, Any]], fpath: Path) -> List[Finding]:
+            def process_and_log(full_result: Optional[Dict[str, Any]], fpath: Path, src: str) -> List[Finding]:
                 if not full_result:
                     return []
                 if self.debug or self.verbose:
-                    self._print_live_claude_summary(fpath, full_result, profile)
+                    self._print_live_claude_summary(fpath, full_result, display_name)
                 findings_key = next((key for key in full_result if key.endswith("_findings")), None)
                 original_findings = full_result.get(findings_key, [])
                 processed: List[Finding] = []
                 for item in original_findings:
                     if self._meets_severity_threshold(item.get("severity", "")):
-                        # Normalize finding fields for consistency
-                        normalized = normalize_finding(item, file_path=fpath, source=f'claude-{profile}')
+                        normalized = normalize_finding(item, file_path=fpath, source=f'claude-{src}')
                         processed.append(normalized)
                 return processed
             
-            # Use Rich progress bar with enhanced colors and spinners
             with Progress(
                 SpinnerColumn(spinner_name="dots", style="cyan"),
                 TextColumn("[bold cyan]{task.description}[/bold cyan]"),
@@ -701,7 +716,7 @@ class Orchestrator:
                 console=self.console,
                 transient=False,
             ) as progress:
-                task = progress.add_task(f"[bold cyan]🔍 Analyzing {len(files)} files ({profile})...[/bold cyan]", total=len(files))
+                task = progress.add_task(f"[bold cyan]🔍 Analyzing {len(files)} files ({display_name})...[/bold cyan]", total=len(files))
                 
                 for i, fpath in enumerate(files, 1):
                     file_display = fpath.name if len(fpath.name) <= 40 else fpath.name[:37] + "..."
@@ -716,7 +731,8 @@ class Orchestrator:
                     
                     try:
                         full_result = self._analyze_file_with_claude(fpath, profile)
-                        profile_findings.extend(process_and_log(full_result, fpath))
+                        src = source_label if source_label else profile
+                        profile_findings.extend(process_and_log(full_result, fpath, src))
                         if not self.parallel:
                             time.sleep(0.3)  # Small delay to avoid rate limits
                     except KeyboardInterrupt:
@@ -731,7 +747,7 @@ class Orchestrator:
                     progress.advance(task)
             
             all_ai_findings.extend(profile_findings)
-            self.console.print(f"[green]✓[/green] Completed {profile} profile: Found {len(profile_findings)} issues (after filtering)")
+            self.console.print(f"[green]✓[/green] Completed {display_name} profile: Found {len(profile_findings)} issues (after filtering)")
         
         return all_ai_findings
 

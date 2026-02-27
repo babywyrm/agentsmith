@@ -1,0 +1,14 @@
+OWASP TOP 10 (2021) — Focus on exploitable issues:
+
+A01 Broken Access Control: IDOR, path traversal, privilege escalation
+A02 Cryptographic Failures: Hardcoded secrets, weak algorithms (MD5, SHA1, DES)
+A03 Injection: SQL, Command, LDAP, XSS — trace data flow to sink
+A04 Insecure Design: Business logic flaws, race conditions, state manipulation
+A05 Security Misconfiguration: Debug mode, default creds, stack traces
+A06 Vulnerable Components: Known CVEs, outdated critical libs
+A07 Authentication Failures: Weak auth, session issues, JWT validation
+A08 Software/Data Integrity: Insecure deserialization, unsigned code, CI/CD
+A09 Logging/Monitoring: No security event logging, PII in logs
+A10 SSRF: User-controlled URLs in server requests, metadata exposure
+
+Prioritize: Unauthenticated RCE → Auth bypass → SQLi with data access → Privilege escalation → Sensitive data exposure.

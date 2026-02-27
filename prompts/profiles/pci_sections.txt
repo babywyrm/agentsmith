@@ -1,0 +1,11 @@
+PCI-DSS v4.0 — Payment card data protection:
+
+Req 3: Protect stored account data — encryption, hashing, truncation, never store CVV
+Req 4: Strong crypto in transit (TLS 1.2+)
+Req 6: Secure development, vuln management, code reviews
+Req 7: Restrict access to cardholder data by need-to-know
+Req 8: Strong authentication, MFA
+Req 10: Log and monitor access to cardholder data
+Key Management: Secure storage, rotation, access controls
+
+Focus on: Payment processing, checkout, tokenization, PAN/CVV handling, key storage.

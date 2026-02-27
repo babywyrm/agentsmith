@@ -174,7 +174,8 @@ echo "✓ Static rules:     $RULE_COUNT rule files in rules/"
 
 # Check prompts
 PROMPT_COUNT=$(ls prompts/*.txt 2>/dev/null | wc -l | xargs)
-echo "✓ AI prompts:       $PROMPT_COUNT profile templates in prompts/"
+PROMPT_SECTIONS=$(ls prompts/profiles/*.txt 2>/dev/null | wc -l | xargs)
+echo "✓ AI prompts:       $PROMPT_COUNT profile templates + $PROMPT_SECTIONS modular sections in prompts/"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

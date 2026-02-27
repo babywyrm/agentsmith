@@ -1,0 +1,25 @@
+CRITICAL: Respond with ONLY valid JSON. No markdown, no text outside JSON.
+
+{{
+  "overall_risk": "CRITICAL|HIGH|MEDIUM|LOW",
+  "total_issues": 0,
+  "owasp_findings": [
+    {{
+      "category": "A03 or framework-specific (e.g. Spring Security, SSTI)",
+      "title": "Concise finding title",
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "exploitability_score": 1-10,
+      "line_number": 45,
+      "vulnerable_code": "The problematic code snippet",
+      "explanation": "Why this is vulnerable. Include data flow if applicable.",
+      "data_flow": "Source → path → Sink (optional but recommended for injections)",
+      "attack_scenario": "Step-by-step exploitation (optional)",
+      "fix": "Specific, actionable remediation",
+      "impact": "Real-world business impact — be specific (e.g. '10K user records at risk', 'RCE enables full server compromise')",
+      "defenses_present": "None detected | List any mitigations observed",
+      "false_positive_likelihood": "LOW|MEDIUM|HIGH",
+      "cwe": "CWE-XXX",
+      "recommendation": "Prioritized action items"
+    }}
+  ]
+}}
