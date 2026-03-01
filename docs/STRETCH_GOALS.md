@@ -23,6 +23,10 @@ A consolidated view of improvement opportunities across the tool. Prioritized by
 | Example CI config | Done (examples/ci-gate.yml) |
 | DVMCP test suite | Done (test_dvmcp.sh, dvmcp shell command) |
 | Differential MCP scanning | Done (mcp_attack --baseline, --save-baseline) |
+| Hybrid API cache | Done (ReviewContextManager wired into orchestrator, 5 call sites) |
+| Leveled-up prompts | Done (attacker, compliance, modern, code_review, performance → 80+ lines each) |
+| Modular prompt composition | Done (prompts/base/ + prompts/profiles/ + lib/prompt_composer.py) |
+| Doc consolidation | Done (merged ROADMAP, trimmed context README, migrated orchestrator.py refs) |
 
 ---
 
@@ -84,10 +88,12 @@ A consolidated view of improvement opportunities across the tool. Prioritized by
 
 ## Recommended Next Steps
 
-1. **Narrow Axios/Go SSRF rules** — Reduce false positives on static URLs
-2. **Orchestrator + MCP cache** — Wire API cache into hybrid/scan_hybrid
-3. **SARIF for scan_mcp** — IDE/CI integration for MCP scan results
-4. **DVMCP scoreboard** — Regression testing for MCP scanner
+1. **Narrow Axios/Go SSRF rules** — Reduce false positives on static URLs (rules flag every `axios.get()` / `http.Get()`)
+2. **SARIF for scan_mcp** — Export scan_mcp findings as SARIF for IDE/CI integration
+3. **DVMCP scoreboard** — JSON scoreboard for regression testing (`test_dvmcp.sh --json`)
+4. **Level up soc2/pci prompts** — Currently adequate (~60 lines) but could match the enhanced profile depth
+5. **Wire cache into MCP tools** — `explain_finding` and `get_fix` call API directly without caching
+6. **Taint analysis profile** — Currently 82 lines, adequate, but could add CWE mapping and remediation examples
 
 ---
 

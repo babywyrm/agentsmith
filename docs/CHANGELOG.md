@@ -2,7 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-02
+## [Unreleased] - 2026-03
+
+### Added
+
+- **Hybrid API cache**: `orchestrator.py` now uses `ReviewContextManager` for transparent API response caching across all 5 call sites (prioritization, analysis, threat modeling, payloads, annotations). Repeat runs skip API calls and use cached responses. New flags: `--cache-dir`, `--no-cache`, `--cache-in-repo`, `--cache-info`, `--cache-clear`.
+- **Leveled-up prompts**: `attacker`, `compliance`, `modern`, `code_review`, and `performance` profiles upgraded from ~40-55 lines to ~80+ lines each with structured analysis frameworks, CWE references, severity guidelines, false positive checks, and prioritization rules.
+- **Modular prompt system**: `prompts/base/` (shared preamble + output schema) and `prompts/profiles/` (per-profile sections) for composable multi-profile prompts via `lib/prompt_composer.py`.
+- **MCP key=value parsing**: `shlex.split()` in MCP client for quoted values (`question="find SQL injection"`).
+- **MCP help overhaul**: Section headers, separators, practical examples with payloads + annotations, `prioritize_top` vs `top_n` explanation.
+- **MCP `everything` command**: Dumps summary + findings + annotations + payloads in one shot.
+
+### Changed
+
+- **Doc consolidation**: Merged `mcp_server/ROADMAP.md` into `docs/STRETCH_GOALS.md`. Trimmed `AGENTSMITH_CONTEXT_README.md`. Removed stale `TEST_IMPROVEMENTS_SUMMARY.md`. Reorganized `docs/README.md` index.
+- **CLI migration**: All user-facing docs now use `agentsmith.py hybrid` instead of `orchestrator.py`.
+- **Test count**: 277 (up from 224)
+- **PROFILES.md**: Added Prioritization & Top Hits section.
+
+---
+
+## [1.x] - 2026-02
 
 ### Added
 

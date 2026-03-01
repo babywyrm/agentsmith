@@ -482,6 +482,66 @@ Each profile:
 - Can be combined with other profiles for comprehensive analysis
 - When used with `--deduplicate`, similar findings from multiple profiles are merged intelligently
 
+## What Each Prompt Actually Does
+
+Each profile has a prompt template in `prompts/` that instructs the AI how to analyze code. Here's what makes each one different:
+
+### Security Profiles — Prompt Architecture
+
+| Profile | Prompt File | Analysis Approach | Output Schema |
+|---------|-------------|-------------------|---------------|
+| **owasp** | `owasp_enhanced_profile.txt` | OWASP Top 10 framework (A01-A10) with per-category priority questions, real-world impact, exploitability scoring (0-10), CVSS, attack scenarios, defense checks, and false-positive verification | `owasp_findings[]` with CWE, CVSS, exploitability_score, data_flow, attack_scenario |
+| **ctf** | `ctf_enhanced_profile.txt` | CTF mindset with targets by time-to-exploit (<1 min, <10 min, <1 hour), flag/secret indicators, exploitation steps, alternative payloads, attack chain synthesis | `ctf_findings[]` with exploitation_steps, payload_example, alternative_payloads, quick_wins |
+| **attacker** | `attacker_profile.txt` | Penetration tester methodology: enumerate attack surface → trace data flow (source→sink) → assess exploitability (reachability 0-10, complexity, confidence) → synthesize end-to-end attack chains | `attack_scenarios[]` with data_flow_path, steps_to_exploit, existing_mitigations |
+
+### Code Quality Profiles — Prompt Architecture
+
+| Profile | Prompt File | Analysis Approach | Output Schema |
+|---------|-------------|-------------------|---------------|
+| **code_review** | `code_review_profile.txt` | Principal engineer review: architecture (SOLID, coupling), error handling (swallowed exceptions, cascade failures), concurrency (race conditions, deadlocks), resource management (leaks), testability | `owasp_findings[]` with category (Error Handling, Concurrency, etc.) |
+| **performance** | `performance_profile.txt` | Performance engineer analysis: 7 categories (DB queries, algorithmic complexity, memory, I/O, concurrency, caching, serialization) with quantified impact estimates (latency, scale thresholds) | `performance_findings[]` with scale_impact estimate |
+
+### Modern & Compliance Profiles — Prompt Architecture
+
+| Profile | Prompt File | Analysis Approach | Output Schema |
+|---------|-------------|-------------------|---------------|
+| **modern** | `modern_profile.txt` | Cloud security architect: supply chain (CWE-1357), secrets management (CWE-798), zero trust, container security (CWE-250), API security, IaC, CI/CD, serverless — focuses on issues traditional scanners miss | `owasp_findings[]` with CWE |
+| **compliance** | `compliance_profile.txt` | Compliance auditor: per-regulation analysis (GDPR articles, HIPAA, PCI-DSS requirements, CCPA, SOX) with specific violation references, fine amounts, cross-regulation overlap detection | `owasp_findings[]` with regulation-specific categories |
+| **soc2** | `soc2_profile.txt` | SOC 2 Trust Service Criteria (CC1-CC9) assessment | `owasp_findings[]` |
+| **pci** | `pci_profile.txt` | PCI-DSS v4.0 requirements (Req 1-12) assessment | `owasp_findings[]` |
+
+### Framework Profiles — Prompt Architecture
+
+| Profile | Prompt File | Analysis Approach | Output Schema |
+|---------|-------------|-------------------|---------------|
+| **springboot** | `springboot_profile.txt` | Spring-specific: actuator exposure, SpEL injection, mass assignment, JPA injection, Spring Security filter-chain, OAuth2/JWT, service-mesh | `owasp_findings[]` with Spring-specific categories |
+| **flask** | `flask_profile.txt` | Flask-specific: Jinja2 SSTI, debug mode, SECRET_KEY, SQLAlchemy injection, session fixation, unsafe uploads, pickle deserializaton | `owasp_findings[]` with Flask-specific categories |
+| **cpp_conan** | `cpp_conan_profile.txt` | Memory safety: buffer overflow (CWE-120), use-after-free (CWE-416), format string (CWE-134), integer overflow (CWE-190), unsafe C functions, CMake/Conan supply chain | `owasp_findings[]` with CWE |
+
+### Modular Composition (Multi-Profile)
+
+When multiple profiles are used (e.g., `--profile owasp,ctf`), the system can compose prompts from modular sections:
+
+```
+prompts/base/system_preamble.txt    → shared persona and reasoning rules
+prompts/base/output_schema.txt      → canonical JSON schema
+prompts/profiles/owasp_sections.txt → OWASP-specific analysis sections
+prompts/profiles/ctf_sections.txt   → CTF-specific analysis sections
+```
+
+The `lib/prompt_composer.py` module merges base + profile sections into a single prompt per file, avoiding redundant instructions when running multiple profiles. Legacy full-template prompts (e.g., `owasp_enhanced_profile.txt`) are used when modular sections aren't available.
+
+### Severity Guidelines (Common Across Profiles)
+
+All enhanced profiles follow consistent severity rules:
+
+| Severity | Criteria |
+|----------|----------|
+| **CRITICAL** | Immediately exploitable with high blast radius (RCE, SQLi, hardcoded prod creds, unencrypted PII) |
+| **HIGH** | Significant risk requiring prompt remediation (auth bypass, SSRF, missing access controls, race conditions in critical paths) |
+| **MEDIUM** | Real issue that should be fixed (XSS, missing rate limiting, excessive permissions, compliance gaps) |
+| **LOW** | Best-practice improvement or defense-in-depth gap (missing headers, informational disclosure, minor refactoring) |
+
 ## Profile-Driven Prioritization
 
 When `--prioritize` is used, profile-specific knowledge is automatically injected into the AI
