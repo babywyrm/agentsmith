@@ -46,6 +46,7 @@ from lib.universal_detector import UniversalTechDetector
 from lib.taint_tracker import TaintTracker, TaintAnalyzer
 from lib.flow_visualizer import FlowVisualizer
 from lib.model_registry import get_default_model, resolve_model, model_cli_help, get_model_max_tokens
+from lib.agentsmith_context import ReviewContextManager
 
 # --- Constants / Configuration ---
 CLAUDE_MODEL = get_default_model()  # Respects CLAUDE_MODEL env var; can be overridden via --model flag
@@ -99,7 +100,8 @@ class Orchestrator:
                  generate_payloads: bool = False, annotate_code: bool = False, top_n: int = 5,
                  export_formats: Optional[List[str]] = None, output_dir: Optional[Path] = None,
                  deduplicate: bool = False, dedupe_threshold: float = 0.7, dedupe_strategy: str = "keep_highest_severity",
-                 show_quick_wins: bool = False, show_chains: bool = False):
+                 show_quick_wins: bool = False, show_chains: bool = False,
+                 cache_dir: str = ".agentsmith_cache", no_cache: bool = False, cache_in_repo: bool = False):
         self.repo_path = repo_path.resolve()
         self.scanner_bin = scanner_bin.resolve()
         self.parallel = parallel
@@ -137,6 +139,18 @@ class Orchestrator:
         
         # Initialize cost tracker
         self.cost_tracker = CostTracker()
+        
+        # Initialize API response cache
+        if cache_in_repo:
+            resolved_cache_dir = str(repo_path / ".agentsmith")
+        else:
+            resolved_cache_dir = cache_dir
+        self.cache = ReviewContextManager(
+            cache_dir=resolved_cache_dir,
+            use_cache=not no_cache,
+            enable_cost_tracking=False,  # we use CostTracker separately
+        )
+        self.no_cache = no_cache
         
         # Rich console for better UX
         self.console = Console()
@@ -405,6 +419,43 @@ class Orchestrator:
             for i in range(0, len(lines), CHUNK_SIZE)
         ]
 
+    def _cached_api_call(
+        self, stage: str, prompt: str, max_tokens: int,
+        file: Optional[str] = None, profile: Optional[str] = None,
+    ) -> Optional[str]:
+        """Make an API call with transparent cache layer. Returns raw response text or None."""
+        mode = f"hybrid_{profile}" if profile else "hybrid"
+        cached = self.cache.get_cached_response(
+            stage, prompt, file=file,
+            repo_path=str(self.repo_path), model=self.model, mode=mode,
+        )
+        if cached:
+            if self.verbose:
+                label = f"{file or stage}"
+                self.console.print(f"[dim]  Cache hit: {label}[/dim]")
+            return cached.raw_response
+
+        resp = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        self.cost_tracker.record_from_response(
+            response=resp, stage=stage, model=self.model,
+            profile=profile, file=file,
+        )
+        raw = resp.content[0].text.strip()
+
+        input_tokens = getattr(resp.usage, "input_tokens", 0)
+        output_tokens = getattr(resp.usage, "output_tokens", 0)
+        self.cache.save_response(
+            stage, prompt, raw,
+            parsed=None,  # caller parses
+            file=file, repo_path=str(self.repo_path), model=self.model,
+            input_tokens=input_tokens, output_tokens=output_tokens, mode=mode,
+        )
+        return raw
+
     def _analyze_file_with_claude(self, file_path: Path, profile: str) -> Optional[Dict[str, Any]]:
         """Send file contents (chunked if needed) to Claude and parse JSON response."""
         client = self.client
@@ -435,47 +486,19 @@ class Orchestrator:
             max_tokens = get_model_max_tokens(self.model, stage="analysis")
             for attempt in range(MAX_RETRIES):
                 try:
-                    resp = client.messages.create(
-                        model=self.model,
-                        max_tokens=max_tokens,
-                        messages=[{"role": "user", "content": prompt}]
+                    raw_text = self._cached_api_call(
+                        "analysis", prompt, max_tokens,
+                        file=str(file_path), profile=profile,
                     )
-                    # Track cost for this API call (including retries - each attempt costs)
-                    self.cost_tracker.record_from_response(
-                        response=resp,
-                        stage="analysis",
-                        model=self.model,
-                        profile=profile,
-                        file=str(file_path)
-                    )
-                    raw_text = resp.content[0].text.strip()
-                    # Detect truncated responses (hit max_tokens before finishing)
-                    if resp.stop_reason == "max_tokens":
-                        logger.warning(f"Response truncated for {file_path} (hit {max_tokens} token limit). Attempting JSON repair.")
-                        # Try to salvage partial JSON by closing open structures
-                        raw_text = self._repair_truncated_json(raw_text)
+                    if raw_text is None:
+                        return None
                     parsed = self._extract_json(raw_text)
                     if parsed:
                         return parsed
-                    elif resp.stop_reason == "max_tokens":
-                        logger.error(f"Could not parse truncated response for {file_path}. Skipping file.")
-                        return None
                 except anthropic.APIStatusError as e:
-                    # Track failed attempts too (if they consume tokens before failing)
-                    # API errors may charge for input tokens before failing
                     if e.status_code == 529 and attempt < MAX_RETRIES - 1:
                         wait_time = 2 ** (attempt + 1)
                         logger.warning(f"Claude API overloaded for {file_path}. Retrying in {wait_time}s... (attempt {attempt + 1}/{MAX_RETRIES})")
-                        # Estimate tokens for failed call (prompt was sent)
-                        estimated_input = len(prompt.split()) * 1.3  # Rough estimate
-                        self.cost_tracker.record_call(
-                            stage="analysis",
-                            model=self.model,
-                            input_tokens=int(estimated_input),
-                            output_tokens=0,
-                            profile=profile,
-                            file=str(file_path)
-                        )
                         time.sleep(wait_time)
                     else:
                         raise e
@@ -563,18 +586,13 @@ class Orchestrator:
                 static_findings=static_findings,
                 profile_hints=profile_hints,
             )
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=get_model_max_tokens(self.model, stage="prioritization"),
-                messages=[{"role": "user", "content": prompt}]
+            raw = self._cached_api_call(
+                "prioritization", prompt,
+                get_model_max_tokens(self.model, stage="prioritization"),
             )
-            # Track cost for prioritization
-            self.cost_tracker.record_from_response(
-                response=response,
-                stage="prioritization",
-                model=self.model
-            )
-            raw = response.content[0].text.strip()
+            if not raw:
+                self.console.print("[red]Prioritization API call failed.[/red]")
+                return None
             
             if self.debug:
                 self.console.print(Panel(raw, title="[dim]RAW API RESPONSE (Prioritization)[/dim]", border_style="dim"))
@@ -853,21 +871,14 @@ class Orchestrator:
             return
         for attempt in range(MAX_RETRIES):
             try:
-                resp = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=get_model_max_tokens(self.model, stage="threat_modeling"),
-                    messages=[{"role": "user", "content": prompt}]
+                raw_text = self._cached_api_call(
+                    "threat_modeling", prompt,
+                    get_model_max_tokens(self.model, stage="threat_modeling"),
+                    profile="attacker",
                 )
-                # Track cost for threat modeling
-                self.cost_tracker.record_from_response(
-                    response=resp,
-                    stage="threat_modeling",
-                    model=self.model
-                )
-                raw_text = resp.content[0].text.strip()
-                if resp.stop_reason == "max_tokens":
-                    logger.warning("Threat model response truncated. Attempting JSON repair.")
-                    raw_text = self._repair_truncated_json(raw_text)
+                if not raw_text:
+                    self.console.print("[red]Threat model API call failed.[/red]")
+                    return
                 parsed = self._extract_json(raw_text)
                 if parsed:
                     report_file = self.output_path / "threat_model_report.json"
@@ -1050,21 +1061,15 @@ class Orchestrator:
                 )
                 
                 try:
-                    response = self.client.messages.create(
-                        model=self.model,
-                        max_tokens=get_model_max_tokens(self.model, stage="payload"),
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    # Track cost for payload generation
                     finding_id = f"{file_path.name}:L{line_num}"
-                    self.cost_tracker.record_from_response(
-                        response=response,
-                        stage="payload_generation",
-                        model=self.model,
-                        file=str(file_path),
-                        finding_id=finding_id
+                    raw = self._cached_api_call(
+                        "payload_generation", prompt,
+                        get_model_max_tokens(self.model, stage="payload"),
+                        file=finding_id,
                     )
-                    raw = response.content[0].text.strip()
+                    if not raw:
+                        progress.advance(task)
+                        continue
                     
                     if self.debug:
                         self.console.print(Panel(raw, title=f"[dim]RAW API RESPONSE (Payloads for {file_path.name})[/dim]", border_style="dim"))
@@ -1194,21 +1199,15 @@ class Orchestrator:
                 )
                 
                 try:
-                    response = self.client.messages.create(
-                        model=self.model,
-                        max_tokens=get_model_max_tokens(self.model, stage="annotation"),
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    # Track cost for annotation
                     finding_id = f"{file_path.name}:L{line_num}"
-                    self.cost_tracker.record_from_response(
-                        response=response,
-                        stage="annotation",
-                        model=self.model,
-                        file=str(file_path),
-                        finding_id=finding_id
+                    raw = self._cached_api_call(
+                        "annotation", prompt,
+                        get_model_max_tokens(self.model, stage="annotation"),
+                        file=finding_id,
                     )
-                    raw = response.content[0].text.strip()
+                    if not raw:
+                        progress.advance(task)
+                        continue
                     
                     if self.debug:
                         self.console.print(Panel(raw, title=f"[dim]RAW API RESPONSE (Annotation for {file_path.name})[/dim]", border_style="dim"))
@@ -1839,6 +1838,16 @@ def main() -> None:
                         help="Display detailed tech stack detection and exit (shows frameworks, entry points, security files)")
     parser.add_argument("--show-chains", action="store_true",
                         help="Show attack chains (data flow from user input to dangerous functions) - focuses on cross-file chains")
+    parser.add_argument("--cache-dir", default=".agentsmith_cache",
+                        help="Cache directory for API responses (default: .agentsmith_cache)")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Disable API response caching (force fresh calls)")
+    parser.add_argument("--cache-in-repo", action="store_true",
+                        help="Store cache in target repo .agentsmith/ (portable)")
+    parser.add_argument("--cache-info", action="store_true",
+                        help="Show cache statistics and exit")
+    parser.add_argument("--cache-clear", action="store_true",
+                        help="Clear all cached API responses and exit")
     args = parser.parse_args()
 
     console = Console()
@@ -1851,6 +1860,23 @@ def main() -> None:
     # Handle profile listing early (no repo required)
     if args.list_profiles:
         _print_profile_list(console)
+        sys.exit(0)
+    
+    # Handle cache management commands
+    if args.cache_info or args.cache_clear:
+        cache_dir = args.cache_dir
+        if args.cache_in_repo and args.repo_path:
+            cache_dir = str(args.repo_path / ".agentsmith")
+        ctx = ReviewContextManager(cache_dir=cache_dir, use_cache=True, enable_cost_tracking=False)
+        if args.cache_info:
+            stats = ctx.cache_stats()
+            console.print(f"\n[bold cyan]Cache Statistics[/bold cyan]")
+            console.print(f"  Directory: {stats.get('dir', cache_dir)}")
+            console.print(f"  Files:     {stats.get('files', 0)}")
+            console.print(f"  Size:      {stats.get('bytes_mb', 0):.2f} MB")
+        if args.cache_clear:
+            deleted = ctx.clear_cache()
+            console.print(f"[green]✓[/green] Cleared {deleted} cache entries")
         sys.exit(0)
     
     # Handle tech stack detection (requires repo only)
@@ -2039,7 +2065,9 @@ def main() -> None:
             dedupe_threshold=args.dedupe_threshold,
             dedupe_strategy=args.dedupe_strategy,
             show_quick_wins=args.show_quick_wins,
-            show_chains=args.show_chains
+            show_chains=args.show_chains,
+            cache_dir=args.cache_dir,
+            no_cache=True,  # no caching for cost estimation
         )
         
         console.print("\n[bold yellow]💰 Cost Estimation[/bold yellow]")
@@ -2139,7 +2167,10 @@ def main() -> None:
         dedupe_threshold=args.dedupe_threshold,
         dedupe_strategy=args.dedupe_strategy,
         show_quick_wins=args.show_quick_wins,
-        show_chains=args.show_chains  # <-- FIXED: Was missing!
+        show_chains=args.show_chains,
+        cache_dir=args.cache_dir,
+        no_cache=args.no_cache,
+        cache_in_repo=args.cache_in_repo,
     )
     orchestrator.run()
 

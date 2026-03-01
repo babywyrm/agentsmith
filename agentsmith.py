@@ -286,6 +286,16 @@ def main():
                               help='Estimate API costs before running (does not execute scan)')
     hybrid_parser.add_argument('--list-profiles', action='store_true',
                               help='List all available AI profiles with descriptions and use cases')
+    hybrid_parser.add_argument('--cache-dir', default='.agentsmith_cache',
+                              help='Cache directory for API responses (default: .agentsmith_cache)')
+    hybrid_parser.add_argument('--no-cache', action='store_true',
+                              help='Disable API response caching (force fresh calls)')
+    hybrid_parser.add_argument('--cache-in-repo', action='store_true',
+                              help='Store cache in target repo .agentsmith/ (portable)')
+    hybrid_parser.add_argument('--cache-info', action='store_true',
+                              help='Show cache statistics and exit')
+    hybrid_parser.add_argument('--cache-clear', action='store_true',
+                              help='Clear all cached API responses and exit')
     
     args = parser.parse_args()
     
