@@ -44,7 +44,7 @@ python3 -m pytest tests/test_profiles.py -v
 
 ## Test Coverage
 
-Current coverage: **223 tests passing (100%)** ✅
+Current coverage: **277 tests passing (100%)** ✅
 
 ### Covered
 ✅ Finding normalization (8 tests)

@@ -92,7 +92,7 @@ python3 agentsmith.py analyze . --cache-info
 python3 agentsmith.py analyze . --cache-clear
 ```
 
-For prune, list, and export: use `python3 smart_analyzer.py . --cache-prune 14`, `--cache-list`, `--cache-export`.
+
 
 ### Storage options
 - **Default**: `.agentsmith_cache/` in current working directory
@@ -145,7 +145,57 @@ python3 agentsmith.py analyze /path/to/repo "security quick pass" --enable-revie
 ## Troubleshooting
 
 - "No reviews found": You ran without `--enable-review-state`. Start a review with that flag or resume by ID.
-- Cache grows large: use `python3 smart_analyzer.py . --cache-prune 30` monthly.
+- Cache grows large: use `--cache-clear` periodically, or delete `.agentsmith_cache/` manually.
 - Different path, same repo: `--resume-review <review_id>` always works; `--enable-review-state` will only auto-detect if fingerprints match.
 - Bypass cache: add `--no-cache` to force fresh API calls.
 
+---
+
+## Developer API Reference
+
+> Implementation: `lib/agentsmith_context.py` — see `tests/agentsmith_context_example.py` for a working example.
+
+### Core Classes
+
+| Class | Purpose |
+|-------|---------|
+| `ReviewContextManager` | Main entry point — creates/loads/resumes reviews, manages cache, tracks costs |
+| `ReviewState` | A review session: ID, repo path, fingerprint, question, status, checkpoints, findings |
+| `ReviewCheckpoint` | Saved stage progress (prioritization, deep_dive, synthesis) |
+| `CachedResponse` | Cached API response with parsed result and token counts |
+| `CostTracker` | Token usage and cost estimation |
+
+### Key Operations
+
+```python
+from lib.agentsmith_context import ReviewContextManager
+
+ctx = ReviewContextManager(cache_dir=".agentsmith_cache", use_cache=True)
+
+# Reviews
+review = ctx.create_review(repo_path, question)
+review = ctx.load_review(review_id)
+ctx.add_checkpoint(review_id, "deep_dive", data, files_analyzed=[...])
+ctx.mark_completed(review_id)
+
+# Caching
+cached = ctx.get_cached_response(stage, prompt, file=None, repo_path=None, model=None)
+ctx.save_response(stage, prompt, raw_response, parsed=None, file=None, ...)
+
+# Cost tracking
+ctx.track_cost(input_tokens=1000, output_tokens=500, cached=False)
+summary = ctx.get_cost_summary("claude-haiku-4-5-20251001")
+```
+
+### Storage Layout
+
+```
+.agentsmith_cache/
+├── reviews/
+│   ├── <review_id>.json
+│   └── _<review_id>_context.md
+└── api_cache/
+    └── <repo_fingerprint>/<model>/<hash>.json
+```
+
+Cache is namespaced by (repo_fingerprint, model). Keys are SHA256 of `stage|file|prompt`.

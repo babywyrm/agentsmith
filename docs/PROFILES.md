@@ -578,6 +578,7 @@ selecting the most relevant files.
 
 ```bash
 # List all profiles with descriptions
-python3 agentsmith.py hybrid . ./scanner --list-profiles# Get help for hybrid mode
+python3 agentsmith.py hybrid . ./scanner --list-profiles
+# Get help for hybrid mode
 python3 agentsmith.py hybrid --help
 ```

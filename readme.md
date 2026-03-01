@@ -402,8 +402,8 @@ agentsmith/
 │
 ├── agentsmith.py              # Main CLI entry point — unified mode dispatcher
 ├── orchestrator.py            # Hybrid static + AI orchestrator (used by agentsmith.py hybrid)
-├── smart_analyzer.py          # AI multi-stage analyzer (used by agentsmith.py analyze)
-├── ctf_analyzer.py            # CTF analyzer (used by agentsmith.py ctf)
+├── smart_analyzer.py          # AI analyzer (internal, called by agentsmith.py analyze)
+├── ctf_analyzer.py            # CTF analyzer (internal, called by agentsmith.py ctf)
 ├── summarize.py               # Scan results summarizer
 │
 ├── agentsmith.go              # Go scanner source code
@@ -465,7 +465,7 @@ agentsmith/
 │   ├── run_trufflehog.sh      # TruffleHog secrets scan (pre-commit check)
 │   └── setup_test_targets.sh  # Clone vulnerable test targets
 │
-├── tests/                     # Test suite (223 tests)
+├── tests/                     # Test suite (277 tests)
 │   ├── test_dvmcp.sh          # DVMCP MCP security scan suite
 │   └── test_targets/          # Vulnerable apps (gitignored)
 │       ├── DVWA/

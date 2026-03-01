@@ -537,7 +537,7 @@ cat output/*/attack_chains.json | jq '.[] | select(.exploitability_score >= 9)'
 
 See:
 - [README.md](README.md) - Complete feature documentation
-- [ADVANCED_EXAMPLES.md](docs/ADVANCED_EXAMPLES.md) - Complex multi-profile workflows
+- [ADVANCED_EXAMPLES.md](ADVANCED_EXAMPLES.md) - Complex multi-profile workflows
 - [PROFILES.md](PROFILES.md) - AI profile descriptions
 - [MCP_SCANNING.md](MCP_SCANNING.md) - Security-scan MCP servers
 
