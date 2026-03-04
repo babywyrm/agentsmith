@@ -39,7 +39,5 @@ packages = ["lib", "mcp_attack", "mcp_server"]
 testpaths = ["tests", "mcp_attack/tests"]
 addopts = "--ignore=tests/test_targets"
 
-[dependency-groups]
-dev = [
-    "pytest>=7.0.0",
-]
+[tool.uv]
+python-preference = "only-system"

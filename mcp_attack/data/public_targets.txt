@@ -1,13 +1,33 @@
-# Public / demo MCP targets for scanning
-# Run DVMCP locally: ./tests/test_dvmcp.sh --setup-only
-# DeepWiki: remote, no-auth (Streamable HTTP at /mcp)
+# Public MCP targets for mcp_attack testing
+# These are publicly accessible MCP servers that accept unauthenticated connections.
+# Use responsibly — enumerate only, do not abuse.
+#
+# Run: mcp-attack --public-targets --verbose
+# Or:  mcp-attack --targets-file mcp_attack/data/public_targets.txt
 
-# DeepWiki — remote, no-auth (https://mcpservers.org, docs.devin.ai)
-https://mcp.deepwiki.com/mcp
-
-# DVMCP challenges (localhost)
+# ── Tier 1: Test infrastructure (localhost) ──────────────────────────
+# DVMCP challenges — deliberately vulnerable, designed for scanning
+# Setup: ./tests/test_dvmcp.sh --setup-only
 http://localhost:9001/sse
 http://localhost:9002/sse
 http://localhost:9003/sse
 http://localhost:9004/sse
 http://localhost:9005/sse
+http://localhost:9006/sse
+http://localhost:9007/sse
+http://localhost:9008/sse
+http://localhost:9009/sse
+http://localhost:9010/sse
+
+# Agent Smith self-scan
+http://localhost:2266/sse
+
+# ── Tier 2: Public remote servers (no auth required) ─────────────────
+# DeepWiki — public docs MCP, Streamable HTTP (Devin/docs.devin.ai)
+https://mcp.deepwiki.com/mcp
+
+# git-mcp — generic MCP for any GitHub repo via SSE (gitmcp.io)
+https://gitmcp.io/punkpeye/awesome-mcp-servers
+
+# Context7 — up-to-date library docs, Streamable HTTP (Upstash)
+https://mcp.context7.com/mcp
