@@ -1,0 +1,45 @@
+[project]
+name = "agentsmith"
+version = "2.0.0"
+description = "Multi-mode security scanner: static analysis, AI-powered review, MCP server auditing, and red teaming"
+readme = "readme.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "anthropic>=0.18.0",
+    "rich>=13.0.0",
+    "typing-inspection>=0.1.0",
+    "tqdm>=4.65.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+mcp-attack = "mcp_attack.__main__:main"
+mcp-audit = "mcp_attack.__main__:main"
+
+[project.optional-dependencies]
+mcp-server = [
+    "mcp[cli]>=1.20.0",
+    "uvicorn>=0.30.0",
+    "starlette>=0.40.0",
+    "anyio>=4.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lib", "mcp_attack", "mcp_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "mcp_attack/tests"]
+addopts = "--ignore=tests/test_targets"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+]
