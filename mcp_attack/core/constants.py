@@ -28,6 +28,17 @@ ATTACK_CHAIN_PATTERNS = [
     ("indirect_injection", "token_theft"),
     ("indirect_injection", "remote_access"),
     ("tool_poisoning", "token_theft"),
+    # Behavioral chains
+    ("tool_response_injection", "cross_tool_manipulation"),
+    ("tool_response_injection", "token_theft"),
+    ("deep_rug_pull", "tool_poisoning"),
+    ("deep_rug_pull", "tool_response_injection"),
+    ("input_sanitization", "code_execution"),
+    ("resource_poisoning", "tool_response_injection"),
+    ("state_mutation", "deep_rug_pull"),
+    ("notification_abuse", "token_theft"),
+    ("cross_tool_manipulation", "code_execution"),
+    ("cross_tool_manipulation", "token_theft"),
 ]
 
 SHADOW_TARGETS = {
