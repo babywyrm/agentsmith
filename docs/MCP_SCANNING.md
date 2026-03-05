@@ -131,6 +131,10 @@ scan_mcp called with target_url
 
 ## Security Checks Reference
 
+The scanner runs **22+ static checks** on metadata and **9 behavioral probe
+checks** that actively call tools and analyze responses. See
+[mcp_attack/README.md](../mcp_attack/README.md) for the full reference.
+
 ### Transport & Authentication
 
 | # | Check | Severity | CWE | What It Catches |
@@ -162,7 +166,7 @@ scan_mcp called with target_url
 | 15 | Unbounded strings | LOW | CWE-20 | Required strings with no maxLength/enum/pattern |
 | 16 | Unbounded integers | LOW | CWE-20 | Integers with no min/max bounds |
 
-### Advanced Detection
+### Advanced Detection (Static)
 
 | # | Check | Severity | CWE | What It Catches |
 |---|-------|----------|-----|-----------------|
@@ -172,6 +176,30 @@ scan_mcp called with target_url
 | 20 | File system resources | MEDIUM | CWE-22 | Resources exposing `file://` URIs |
 | 21 | Experimental features | LOW | CWE-1104 | Server exposes experimental MCP capabilities |
 | 22 | Poor documentation | LOW | CWE-1059 | Tools with missing or minimal descriptions |
+
+### Behavioral Probe Checks (active tool invocation)
+
+These checks go beyond metadata — they call tools, read resources, and
+analyze what comes back.
+
+| # | Check | Severity | What It Catches |
+|---|-------|----------|----------------|
+| 23 | Deep rug pull | CRITICAL | Tool list/schema changes after invoking tools (state-dependent rug pulls) |
+| 24 | Tool response injection | CRITICAL–HIGH | Injection payloads, exfil URLs, hidden content, invisible Unicode in tool **output** |
+| 25 | Input sanitization | CRITICAL–HIGH | Path traversal, command injection, template injection, SQL injection reflected unsanitized |
+| 26 | Cross-tool manipulation | HIGH | Tool output that directs the LLM to invoke a different tool |
+| 27 | Error leakage | HIGH–MEDIUM | Stack traces, internal paths, connection strings in error responses |
+| 28 | Temporal consistency | CRITICAL–MEDIUM | Escalating injection or inconsistent behavior across repeated identical calls |
+| 29 | Resource poisoning | CRITICAL–HIGH | Base64-encoded injection, data URIs, steganographic Unicode, CSS-hidden HTML in resources |
+| 30 | State mutation | HIGH–MEDIUM | Resources that appear, disappear, or change after tool invocations |
+| 31 | Notification abuse | CRITICAL–MEDIUM | Unsolicited `sampling/createMessage`, `roots/list`, or server-initiated requests |
+
+### Aggregate Checks
+
+| # | Check | Severity | What It Catches |
+|---|-------|----------|----------------|
+| 32 | Multi-vector | CRITICAL | 2+ dangerous vulnerability categories active on one server |
+| 33 | Attack chains | CRITICAL | Linked vulnerability pairs (e.g. `input_sanitization → code_execution`) |
 
 ---
 
@@ -479,17 +507,57 @@ Use `last` to get the full JSON output for programmatic processing.
 
 ---
 
+## Scan Phases
+
+The scanner runs checks in a deliberate order to build context:
+
+```
+1. Static checks        Pattern-match on metadata (fast, no side effects)
+2. Behavioral checks    Re-list tools, read resources, send invalid methods
+3. Deep probe checks    Call tools with safe payloads, analyze responses
+4. Transport checks     CORS, unauthenticated SSE, cross-origin POST
+5. Aggregate checks     Multi-vector and attack chain detection (sees all prior findings)
+```
+
+This ordering ensures that aggregate checks like `attack_chains` can see
+findings from both static and behavioral phases.
+
+---
+
+## Behavioral Probing
+
+The `mcp_attack` standalone scanner (`python3 -m mcp_attack`) includes a
+behavioral probe engine that goes beyond the `scan_mcp` tool's static analysis.
+
+It calls tools with safe payloads, reads resources, monitors for unsolicited
+messages, and analyzes everything that comes back. See
+[mcp_attack/README.md](../mcp_attack/README.md#behavioral-probing-methodology)
+for the full methodology, including safe argument generation, injection probes,
+and response analysis.
+
+Key behavioral capabilities:
+- **Deep rug pull detection** — invokes tools between `tools/list` snapshots to trigger state-dependent rug pulls
+- **Input sanitization probing** — path traversal, command/template/SQL injection with canary strings
+- **Response threat scanning** — injection payloads, exfil URLs, hidden content, invisible Unicode, base64-encoded attacks
+- **Cross-tool manipulation** — detects when tool output orchestrates calls to other tools
+- **State mutation detection** — compares resource content before and after tool invocations
+- **Notification abuse monitoring** — catches unsolicited `sampling/createMessage` or `roots/list` from the server
+
+---
+
 ## Limitations & Future Work
 
 **Current limitations:**
-- Static analysis only — does not call tools or test for actual exploitation
-- Cannot detect runtime behavior changes (e.g., rug pull attacks after N calls)
+- ~~Static analysis only~~ — `scan_mcp` (MCP tool) is still static-only; behavioral probing is available via `mcp_attack` CLI
+- ~~Cannot detect runtime behavior changes~~ — `deep_rug_pull` now invokes tools between enumerations; some threshold-based rug pulls may still require more invocations
 - Tool poisoning detection relies on keyword patterns, not semantic analysis
-- Resource content is not inspected (only URI and metadata)
+- ~~Resource content is not inspected~~ — `resource_poisoning` and `indirect_injection` now read and deeply analyze resource content
+- Behavioral probes use safe payloads; actual exploitation verification is not attempted
+- No SARIF output yet
 
 **Planned enhancements:**
-- Active probing mode (safe, non-destructive tool calls to verify findings)
 - AI-powered description analysis for subtle tool poisoning
-- Differential scanning (detect tool definition changes over time)
 - SARIF output format for IDE integration
 - Integration with [agentgateway](https://github.com/agentgateway/agentgateway) for runtime traffic analysis
+- Merge behavioral probing into `scan_mcp` tool (currently only in `mcp_attack` CLI)
+- Active exploitation mode (controlled, opt-in exploit verification beyond safe probing)

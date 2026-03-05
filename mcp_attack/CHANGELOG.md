@@ -2,7 +2,51 @@
 
 All notable changes to this submodule are documented here.
 
-## [Unreleased] - 2026-02
+## [Unreleased] - 2026-03
+
+### Added
+
+- **Behavioral probe engine** — 9 new checks that actively call tools and analyze responses, moving beyond static metadata analysis:
+  - `check_tool_response_injection` — Calls each tool with safe inputs, scans responses for injection payloads, hidden instructions, exfiltration URLs, invisible Unicode, and base64-encoded attacks
+  - `check_input_sanitization` — Sends context-aware probes (path traversal, command injection, template injection, SQL injection) and detects unsanitized reflection. Uses a canary string (`MCP_PROBE_8f4c2a`) to confirm reflection.
+  - `check_error_leakage` — Sends empty, wrong-type, and prototype-pollution inputs; checks for stack traces, internal paths, connection strings, secrets in error responses
+  - `check_temporal_consistency` — Calls the same tool 3x with identical input; detects escalating injection, wildly inconsistent responses, or new threats appearing in later calls
+  - `check_resource_poisoning` — Deep resource content analysis: base64-encoded injection payloads, data URIs, steganographic invisible Unicode, CSS-hidden HTML, markdown image exfiltration
+  - `check_cross_tool_manipulation` — Detects when a tool's output contains instructions directing the LLM to invoke other tools (cross-tool orchestration attacks)
+  - `check_deep_rug_pull` — Snapshots tools → invokes each tool multiple times → re-snapshots. Catches rug pulls that only trigger after N tool invocations (e.g. DVMCP challenge 4), including schema mutations
+  - `check_state_mutation` — Snapshots resource contents before and after tool invocations; detects silent server state changes, new/disappeared resources
+  - `check_notification_abuse` — Monitors SSE message queue for unsolicited `sampling/createMessage`, `roots/list`, or other server-initiated requests that abuse MCP's bidirectional protocol
+
+- **Probe payload library** (`patterns/probes.py`)
+  - Canary string system for detecting unsanitized reflection
+  - Context-aware safe argument generation from tool schemas
+  - Injection probe sets: path traversal (4), command injection (5), template injection (5), SQL injection (3)
+  - Response analysis patterns: injection (12), exfiltration (3), cross-tool (3), hidden content (5), error leakage (9)
+  - Steganographic Unicode detection (zero-width, bidi, invisible formatters)
+  - CSS-hidden HTML and markdown image exfiltration detection
+
+- **Attack chain patterns** — 10 new behavioral chain combinations:
+  - `tool_response_injection → cross_tool_manipulation`
+  - `tool_response_injection → token_theft`
+  - `deep_rug_pull → tool_poisoning`
+  - `deep_rug_pull → tool_response_injection`
+  - `input_sanitization → code_execution`
+  - `resource_poisoning → tool_response_injection`
+  - `state_mutation → deep_rug_pull`
+  - `notification_abuse → token_theft`
+  - `cross_tool_manipulation → code_execution`
+  - `cross_tool_manipulation → token_theft`
+
+- **Check execution ordering** — `run_all_checks()` now runs in deliberate phases: static → behavioral → deep probes → transport → aggregate. Aggregate checks (multi_vector, attack_chains) run last so they see all prior findings.
+
+### Changed
+
+- `checks/__init__.py` — Reorganized check execution into clear phases with comments
+- `checks/behavioral.py` — Refactored tool-list diffing into shared `_diff_tool_lists()` helper used by both shallow and deep rug pull checks
+
+---
+
+## [4.1] - 2026-02
 
 ### Added
 
@@ -52,6 +96,7 @@ All notable changes to this submodule are documented here.
 ### Medium effort
 
 - ~~**Differential MCP scanning**~~ — ✓ Done. `--baseline` and `--save-baseline`
+- ~~**Fuzzing / live probing**~~ — ✓ Done. Behavioral probe engine with safe tool invocation
 - **AI-powered MCP description analysis** — Use Claude to detect subtle tool poisoning, hidden instructions, misleading descriptions
 - **SARIF export** — Export findings as SARIF for IDE/CI (VS Code, GitHub Code Scanning)
 
@@ -59,6 +104,6 @@ All notable changes to this submodule are documented here.
 
 - **Docker image** — Official `agentsmith-mcp` image for easy deployment
 - **Metrics endpoint** — Prometheus `/metrics` for request counts, scan latency, tool usage
-- **Attack chain profiling** — AI-driven synthesis of findings into multi-step attack paths
+- ~~**Attack chain profiling**~~ — ✓ Done. 17 attack chain patterns with aggregate detection
 - **MCP registry** — Curated list of public MCP servers for periodic scanning
-- **Fuzzing / live probing** — Malformed MCP messages, injection payloads into tool names/descriptions
+- **Active exploitation mode** — Controlled, opt-in exploit verification (beyond safe probing)
