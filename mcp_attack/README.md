@@ -203,6 +203,11 @@ Scan Options:
   --timeout SEC               Per-target connection timeout (default: 25)
   --workers N                 Parallel scan workers (default: 4)
 
+Safety Controls:
+  --no-invoke                 Static-only: skip all behavioral probes (safe for production)
+  --safe-mode                 Skip dangerous tools (delete/send/exec/write), probe read-only
+  --probe-calls N             Invocations per tool for deep rug pull (default: 6)
+
 Output:
   --json FILE                 Write JSON report to FILE
   --verbose, -v               Verbose output
@@ -216,6 +221,19 @@ Kubernetes:
   --k8s-namespace NS          Namespace for internal checks (default: default)
   --no-k8s                    Skip Kubernetes checks
 ```
+
+### Scan Modes
+
+| Mode | Flag | What Runs | Use Case |
+|------|------|-----------|----------|
+| **Full** | (default) | Static + all behavioral probes | Dev/staging, DVMCP, CTFs |
+| **Safe** | `--safe-mode` | Static + probes on read-only tools only | Prod servers with mixed tool risk |
+| **Static** | `--no-invoke` | Static checks only, no tool calls | Prod servers, zero side-effect risk |
+
+Tools are classified as **dangerous** if their name contains keywords like
+`delete`, `execute`, `send`, `write`, `deploy`, `kill`, `transfer`, etc.
+In `--safe-mode`, these are skipped while read-only tools (`get`, `list`,
+`search`, `check`, `verify`, etc.) are still probed.
 
 ---
 
@@ -387,17 +405,24 @@ section of the scan output.
 git clone https://github.com/harishsg993010/damn-vulnerable-MCP-server.git \
     tests/test_targets/DVMCP
 
-# Start servers
-./tests/test_dvmcp.sh --setup-only
+# Reset to baseline + start servers + scan (recommended)
+./tests/dvmcp_reset.sh --scan
 
-# Scan
+# Or step by step:
+./tests/dvmcp_reset.sh                  # reset + start servers
 mcp-attack --port-range localhost:9001-9010 --verbose
 
 # Scan specific challenges
 mcp-attack --targets http://localhost:9002 http://localhost:9008
 
-# Kill servers
-./tests/test_dvmcp.sh --kill
+# Deeper rug pull probing (more calls per tool)
+mcp-attack --port-range localhost:9001-9010 --probe-calls 10
+
+# Static-only scan (no tool calls)
+mcp-attack --port-range localhost:9001-9010 --no-invoke
+
+# Kill servers + clean state
+./tests/dvmcp_reset.sh --kill-only
 ```
 
 ---

@@ -86,7 +86,7 @@ def _extract_text(resp: dict | None) -> str:
     return str(r) if r else ""
 
 
-def check_deep_rug_pull(session, result: TargetResult):
+def check_deep_rug_pull(session, result: TargetResult, probe_opts: dict | None = None):
     """Invoke tools between tool-list snapshots to trigger state-dependent rug pulls.
 
     Detects two flavours:
@@ -94,6 +94,8 @@ def check_deep_rug_pull(session, result: TargetResult):
       2. Response rug pull — tool output changes significantly after N calls
          (e.g. helpful → error/paywall/injection).
     """
+    opts = probe_opts or {}
+    calls_per_tool = opts.get("probe_calls", 6)
     with time_check("deep_rug_pull", result):
         # Phase 1: snapshot tool list
         snap1 = session.call("tools/list", timeout=15)
@@ -119,7 +121,7 @@ def check_deep_rug_pull(session, result: TargetResult):
                 else:
                     args[pname] = "test"
 
-            for i in range(6):
+            for i in range(calls_per_tool):
                 try:
                     resp = session.call("tools/call", {"name": name, "arguments": args}, timeout=8)
                     text = _extract_text(resp)
@@ -148,9 +150,14 @@ def check_deep_rug_pull(session, result: TargetResult):
 
             # Significant divergence: length ratio or semantic shift
             len_ratio = len(last) / max(len(first), 1)
-            shift_keywords = ("error", "rate limit", "upgrade", "premium", "denied",
-                              "expired", "unauthorized", "payment", "subscribe",
-                              "blocked", "exceeded", "forbidden")
+            shift_keywords = (
+                "error", "rate limit", "upgrade", "premium", "denied",
+                "expired", "unauthorized", "payment", "subscribe",
+                "blocked", "exceeded", "forbidden", "unavailable",
+                "maintenance", "restricted", "quota", "throttl",
+                "timeout", "captcha", "verify your identity",
+                "ignore previous", "you must", "system prompt",
+            )
             has_shift = any(kw in last.lower() and kw not in first.lower() for kw in shift_keywords)
 
             if has_shift or len_ratio > 2.0 or len_ratio < 0.3:

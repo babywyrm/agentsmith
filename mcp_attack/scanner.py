@@ -48,6 +48,7 @@ def scan_target(
     timeout: float = 25.0,
     verbose: bool = False,
     auth_token: str | None = None,
+    probe_opts: dict | None = None,
 ) -> TargetResult:
     result = TargetResult(url=url)
     t_start = time.time()
@@ -101,6 +102,7 @@ def scan_target(
         base=base,
         sse_path=sse_path,
         verbose=verbose,
+        probe_opts=probe_opts or {},
     )
 
     session.close()
@@ -118,6 +120,7 @@ def run_parallel(
     workers: int = 4,
     verbose: bool = False,
     auth_token: str | None = None,
+    probe_opts: dict | None = None,
 ) -> list[TargetResult]:
     results: list[TargetResult] = []
     lock = threading.Lock()
@@ -141,7 +144,8 @@ def run_parallel(
             with lock:
                 snapshot = list(results)
             r = scan_target(
-                url, snapshot, timeout=timeout, verbose=verbose, auth_token=auth_token
+                url, snapshot, timeout=timeout, verbose=verbose,
+                auth_token=auth_token, probe_opts=probe_opts,
             )
             with lock:
                 results.append(r)

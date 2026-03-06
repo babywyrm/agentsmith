@@ -99,6 +99,25 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Save current scan as baseline for future differential scans",
     )
     p.add_argument(
+        "--no-invoke",
+        action="store_true",
+        help="Static-only mode: skip all behavioral probes that call tools. "
+        "Safe for production servers where tool invocation could have side effects.",
+    )
+    p.add_argument(
+        "--safe-mode",
+        action="store_true",
+        help="Skip invoking tools classified as dangerous (delete, send, exec, write). "
+        "Behavioral probes still run on read-only / low-risk tools.",
+    )
+    p.add_argument(
+        "--probe-calls",
+        type=int,
+        default=6,
+        metavar="N",
+        help="Number of tool invocations per tool for deep rug pull detection (default: 6)",
+    )
+    p.add_argument(
         "--k8s-namespace",
         metavar="NS",
         default="default",

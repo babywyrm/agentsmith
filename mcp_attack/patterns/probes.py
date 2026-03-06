@@ -74,9 +74,11 @@ SQL_INJECTION_PROBES = [
     "1 UNION SELECT 1--",
 ]
 
-TEMPLATE_INJECTION_INDICATORS = [
-    "49",       # 7*7 evaluated
-    "7*7",      # template not escaped but not evaluated either
+TEMPLATE_INJECTION_PROBES_V2 = [
+    ("{{1333*7}}", "9331"),    # distinctive product unlikely in normal output
+    ("${1333*7}", "9331"),
+    ("<%= 1333*7 %>", "9331"),
+    ("#{1333*7}", "9331"),
 ]
 
 # ---------------------------------------------------------------------------

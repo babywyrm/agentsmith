@@ -49,13 +49,22 @@ def run_all_checks(
     base: str = "",
     sse_path: str = "",
     verbose: bool = False,
+    probe_opts: dict | None = None,
 ):
     """Run all security checks against a target result.
 
     Ordering: static checks first (fast, no side-effects), then behavioral
     probes that actively interact with the server.
+
+    probe_opts keys:
+      no_invoke  (bool)  — skip all tool-calling checks
+      safe_mode  (bool)  — skip invoking dangerous tools (delete, send, exec, write)
+      probe_calls (int)  — invocations per tool for deep rug pull (default 6)
     """
-    # ── Static checks (metadata only) ──────────────────────────────────
+    opts = probe_opts or {}
+    no_invoke = opts.get("no_invoke", False)
+
+    # ── Static checks (metadata only — always run) ─────────────────────
     check_tool_shadowing(all_results, result)
     check_prompt_injection(result)
     check_tool_poisoning(result)
@@ -68,20 +77,21 @@ def run_all_checks(
     check_prompt_leakage(result)
     check_supply_chain(result)
 
-    # ── Behavioral checks (active server interaction) ──────────────────
-    check_rug_pull(session, result)
-    check_indirect_injection(session, result)
-    check_protocol_robustness(session, result)
+    # ── Behavioral checks (light interaction — always run unless --no-invoke)
+    if not no_invoke:
+        check_rug_pull(session, result)
+        check_indirect_injection(session, result)
+        check_protocol_robustness(session, result)
 
-    # ── Deep behavioral probes (invoke tools, analyze responses) ───────
-    check_deep_rug_pull(session, result)
-    check_tool_response_injection(session, result)
-    check_input_sanitization(session, result)
-    check_error_leakage(session, result)
-    check_temporal_consistency(session, result)
-    check_resource_poisoning(session, result)
-    check_state_mutation(session, result)
-    check_notification_abuse(session, result)
+        # ── Deep behavioral probes (invoke tools, analyze responses) ───
+        check_deep_rug_pull(session, result, probe_opts=opts)
+        check_tool_response_injection(session, result, probe_opts=opts)
+        check_input_sanitization(session, result, probe_opts=opts)
+        check_error_leakage(session, result, probe_opts=opts)
+        check_temporal_consistency(session, result, probe_opts=opts)
+        check_resource_poisoning(session, result)
+        check_state_mutation(session, result)
+        check_notification_abuse(session, result)
 
     # ── Transport checks ───────────────────────────────────────────────
     if base and sse_path:

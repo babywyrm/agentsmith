@@ -24,8 +24,8 @@ from mcp_attack.patterns.probes import (
     PATH_TRAVERSAL_PROBES,
     COMMAND_INJECTION_PROBES,
     TEMPLATE_INJECTION_PROBES,
+    TEMPLATE_INJECTION_PROBES_V2,
     SQL_INJECTION_PROBES,
-    TEMPLATE_INJECTION_INDICATORS,
     RESPONSE_INJECTION_PATTERNS,
     RESPONSE_EXFIL_PATTERNS,
     CROSS_TOOL_PATTERNS,
@@ -37,6 +37,52 @@ from mcp_attack.patterns.probes import (
     MD_IMAGE_EXFIL_PATTERN,
     has_invisible_unicode,
 )
+
+# ---------------------------------------------------------------------------
+# Tool danger classification
+# ---------------------------------------------------------------------------
+
+_DANGEROUS_TOOL_KEYWORDS = {
+    "delete", "remove", "drop", "destroy", "kill", "terminate", "purge",
+    "send", "email", "sms", "notify", "post", "publish", "broadcast",
+    "exec", "execute", "run", "shell", "bash", "eval", "system", "spawn",
+    "write", "overwrite", "truncate", "format", "wipe",
+    "deploy", "restart", "shutdown", "reboot",
+    "transfer", "pay", "charge", "invoice",
+}
+
+_READ_ONLY_TOOL_KEYWORDS = {
+    "get", "read", "list", "search", "find", "query", "fetch", "describe",
+    "info", "status", "check", "verify", "validate", "count", "show",
+    "view", "browse", "lookup", "inspect", "ping", "health", "version",
+    "weather", "time", "date", "calculate", "convert",
+}
+
+
+def _is_dangerous_tool(tool: dict) -> bool:
+    """Classify a tool as dangerous based on name and description."""
+    name = tool.get("name", "").lower()
+    desc = tool.get("description", "").lower()
+    combined = f"{name} {desc}"
+
+    for kw in _DANGEROUS_TOOL_KEYWORDS:
+        if kw in name.split("_") or kw in name.split("-"):
+            return True
+
+    if any(kw in combined for kw in ("side effect", "irreversible", "destructive", "permanent")):
+        return True
+
+    return False
+
+
+def _should_invoke(tool: dict, probe_opts: dict) -> bool:
+    """Decide whether to invoke a tool given the current probe options."""
+    if probe_opts.get("no_invoke"):
+        return False
+    if probe_opts.get("safe_mode") and _is_dangerous_tool(tool):
+        return False
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -60,7 +106,37 @@ def _build_safe_args(tool: dict) -> dict:
 
         ptype = pdef.get("type", "string")
 
-        # Try name-aware safe value first
+        # Respect schema constraints
+        if ptype in ("number", "integer"):
+            lo = pdef.get("minimum", pdef.get("exclusiveMinimum"))
+            hi = pdef.get("maximum", pdef.get("exclusiveMaximum"))
+            if lo is not None and hi is not None:
+                args[pname] = (lo + hi) // 2
+            elif lo is not None:
+                args[pname] = int(lo) + 1
+            elif hi is not None:
+                args[pname] = int(hi) - 1
+            else:
+                args[pname] = SAFE_DEFAULTS.get(ptype, 1)
+            continue
+
+        if ptype == "boolean":
+            args[pname] = pdef.get("default", False)
+            continue
+
+        if ptype == "array":
+            args[pname] = pdef.get("default", [])
+            continue
+
+        if ptype == "object":
+            args[pname] = pdef.get("default", {})
+            continue
+
+        # String: try name-aware safe value
+        if "pattern" in pdef:
+            args[pname] = "test"
+            continue
+
         matched = False
         for pattern, value in PARAM_SAFE_VALUES:
             if re.search(pattern, pname, re.IGNORECASE):
@@ -77,7 +153,7 @@ def _build_safe_args(tool: dict) -> dict:
                     break
 
         if not matched:
-            args[pname] = SAFE_DEFAULTS.get(ptype, "test")
+            args[pname] = pdef.get("default", SAFE_DEFAULTS.get(ptype, "test"))
 
     return args
 
@@ -168,17 +244,20 @@ def _scan_response_threats(text: str) -> list[tuple[str, str, str]]:
 # Check: Tool Response Injection
 # ---------------------------------------------------------------------------
 
-def check_tool_response_injection(session, result: TargetResult):
+def check_tool_response_injection(session, result: TargetResult, probe_opts: dict | None = None):
     """Call each tool with safe inputs and scan responses for injection / manipulation.
 
     Also detects input reflection — if a tool echoes user input back in the
     response, it's an indirect injection conduit (attacker-controlled text
     ends up in the LLM context via tool output).
     """
+    opts = probe_opts or {}
     with time_check("tool_response_injection", result):
         tool_names = {t["name"].lower() for t in result.tools}
 
         for tool in result.tools:
+            if not _should_invoke(tool, opts):
+                continue
             name = tool.get("name", "")
             args = _build_safe_args(tool)
 
@@ -210,9 +289,9 @@ def check_tool_response_injection(session, result: TargetResult):
                         )
 
         # --- Input reflection detection ---
-        # Send a distinctive payload through each string param and check if
-        # it appears verbatim in the response (indirect injection vector).
         for tool in result.tools:
+            if not _should_invoke(tool, opts):
+                continue
             name = tool.get("name", "")
             props = tool.get("inputSchema", {}).get("properties", {})
             base_args = _build_safe_args(tool)
@@ -240,10 +319,13 @@ def check_tool_response_injection(session, result: TargetResult):
 # Check: Input Sanitization
 # ---------------------------------------------------------------------------
 
-def check_input_sanitization(session, result: TargetResult):
+def check_input_sanitization(session, result: TargetResult, probe_opts: dict | None = None):
     """Send injection probe payloads and detect missing sanitization."""
+    opts = probe_opts or {}
     with time_check("input_sanitization", result):
         for tool in result.tools:
+            if not _should_invoke(tool, opts):
+                continue
             name = tool.get("name", "")
             props = tool.get("inputSchema", {}).get("properties", {})
 
@@ -281,18 +363,21 @@ def check_input_sanitization(session, result: TargetResult):
                             evidence=f"Sent: {probe_value}\nGot: {text[:300]}",
                         )
 
-                    # Template injection evaluated
-                    if probe_type == "template_injection":
-                        for indicator in TEMPLATE_INJECTION_INDICATORS:
-                            if indicator in text and indicator not in probe_value:
-                                result.add(
-                                    "input_sanitization",
-                                    "CRITICAL",
-                                    f"Template injection in '{name}' param '{pname}'",
-                                    f"Payload '{{{{7*7}}}}' evaluated to '{indicator}'",
-                                    evidence=text[:300],
-                                )
-                                break
+                # Dedicated template injection with distinctive products (low false-positive)
+                if pdef.get("type") in (None, "string"):
+                    for tpl_payload, tpl_expected in TEMPLATE_INJECTION_PROBES_V2[:2]:
+                        test_args = {**base_args, pname: tpl_payload}
+                        resp = _call_tool(session, name, test_args, timeout=8)
+                        text = _response_text(resp)
+                        if text and tpl_expected in text:
+                            result.add(
+                                "input_sanitization",
+                                "CRITICAL",
+                                f"Template injection in '{name}' param '{pname}'",
+                                f"Payload '{tpl_payload}' evaluated to '{tpl_expected}'",
+                                evidence=text[:300],
+                            )
+                            break
 
                     # Error leakage triggered by injection probe
                     for pat in ERROR_LEAKAGE_PATTERNS:
@@ -312,10 +397,13 @@ def check_input_sanitization(session, result: TargetResult):
 # Check: Error Information Leakage
 # ---------------------------------------------------------------------------
 
-def check_error_leakage(session, result: TargetResult):
+def check_error_leakage(session, result: TargetResult, probe_opts: dict | None = None):
     """Send malformed inputs to tools and look for information disclosure in errors."""
+    opts = probe_opts or {}
     with time_check("error_leakage", result):
         for tool in result.tools:
+            if not _should_invoke(tool, opts):
+                continue
             name = tool.get("name", "")
             schema = tool.get("inputSchema", {})
             required = schema.get("required", [])
@@ -375,10 +463,13 @@ def check_error_leakage(session, result: TargetResult):
 # Check: Temporal Consistency
 # ---------------------------------------------------------------------------
 
-def check_temporal_consistency(session, result: TargetResult):
+def check_temporal_consistency(session, result: TargetResult, probe_opts: dict | None = None):
     """Call the same tool repeatedly and detect behavioral drift or escalation."""
+    opts = probe_opts or {}
     with time_check("temporal_consistency", result):
         for tool in result.tools[:5]:
+            if not _should_invoke(tool, opts):
+                continue
             name = tool.get("name", "")
             args = _build_safe_args(tool)
 

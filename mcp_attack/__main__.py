@@ -64,6 +64,17 @@ def main():
         )
     )
 
+    probe_opts = {
+        "no_invoke": args.no_invoke,
+        "safe_mode": args.safe_mode,
+        "probe_calls": args.probe_calls,
+    }
+
+    if args.no_invoke:
+        console.print("  [yellow]--no-invoke: behavioral probes disabled (static-only)[/yellow]")
+    elif args.safe_mode:
+        console.print("  [yellow]--safe-mode: skipping dangerous tool invocations[/yellow]")
+
     if not args.no_k8s:
         run_k8s_checks(args.k8s_namespace, console=console)
 
@@ -75,6 +86,7 @@ def main():
                 timeout=args.timeout,
                 verbose=args.verbose,
                 auth_token=args.auth_token,
+                probe_opts=probe_opts,
             )
         ]
     else:
@@ -84,6 +96,7 @@ def main():
             workers=args.workers,
             verbose=args.verbose,
             auth_token=args.auth_token,
+            probe_opts=probe_opts,
         )
 
     detect_cross_shadowing(results)
