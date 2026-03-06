@@ -153,3 +153,28 @@ def has_invisible_unicode(text: str, threshold: int = 3) -> list[str]:
         if ord(ch) == 0xFEFF or any(ord(ch) in r for r in STEGANOGRAPHIC_RANGES)
     ]
     return found if len(found) >= threshold else []
+
+
+# ---------------------------------------------------------------------------
+# Credential content patterns — detect actual secrets in resource/response text
+# ---------------------------------------------------------------------------
+
+CREDENTIAL_CONTENT_PATTERNS = [
+    (r"(?:password|passwd|pwd)\s*[:=]\s*\S+", "password"),
+    (r"(?:api[_-]?key|apikey)\s*[:=]\s*\S+", "api_key"),
+    (r"sk-[a-zA-Z0-9]{20,}", "openai_key"),
+    (r"ghp_[a-zA-Z0-9]{36}", "github_pat"),
+    (r"(?:bearer|token)\s+[a-zA-Z0-9._\-]{20,}", "bearer_token"),
+    (r"(?:postgres|mysql|mongodb|redis)://\w+:\w+@", "connection_string"),
+    (r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----", "private_key"),
+    (r"AKIA[0-9A-Z]{16}", "aws_access_key"),
+    (r"(?:secret|credential)\s*[:=]\s*\S+", "secret"),
+    (r"(?:admin|root)\s+(?:password|pwd|pass)\s*[:=]\s*\S+", "admin_password"),
+    (r"(?:database|db)\s+(?:connection|conn)\s*[:=]?\s*\S+://", "db_connection"),
+]
+
+# ---------------------------------------------------------------------------
+# Input reflection — distinctive payload for detecting echo/reflection
+# ---------------------------------------------------------------------------
+
+REFLECTION_PAYLOAD = f"REFLECTION_PROBE_{CANARY}"

@@ -68,20 +68,43 @@ def check_rug_pull(session, result: TargetResult):
 # Deep rug pull (NEW — invoke tools between enumerations)
 # ---------------------------------------------------------------------------
 
+def _extract_text(resp: dict | None) -> str:
+    """Pull text out of a tools/call response."""
+    if not resp:
+        return ""
+    r = resp.get("result", resp.get("error", {}))
+    if isinstance(r, str):
+        return r
+    if isinstance(r, dict):
+        content = r.get("content", [])
+        if isinstance(content, list):
+            return "\n".join(
+                c.get("text", "") if isinstance(c, dict) else str(c) for c in content
+            )
+        if "message" in r:
+            return r["message"]
+    return str(r) if r else ""
+
+
 def check_deep_rug_pull(session, result: TargetResult):
     """Invoke tools between tool-list snapshots to trigger state-dependent rug pulls.
 
-    Many rug-pull servers only mutate after the client has demonstrated "trust"
-    by making N tool calls.  The shallow check misses these entirely.
+    Detects two flavours:
+      1. Metadata rug pull — tool list, descriptions, or schemas change after N calls.
+      2. Response rug pull — tool output changes significantly after N calls
+         (e.g. helpful → error/paywall/injection).
     """
     with time_check("deep_rug_pull", result):
-        # Phase 1: snapshot
+        # Phase 1: snapshot tool list
         snap1 = session.call("tools/list", timeout=15)
         if not snap1 or "result" not in snap1:
             return
         before = {t["name"]: t for t in snap1["result"].get("tools", [])}
 
-        # Phase 2: call every tool a few times to burn through thresholds
+        # Phase 2: call every tool, capture first and last responses
+        first_responses: dict[str, str] = {}
+        last_responses: dict[str, str] = {}
+
         for tool in list(before.values())[:6]:
             name = tool.get("name", "")
             props = tool.get("inputSchema", {}).get("properties", {})
@@ -95,21 +118,49 @@ def check_deep_rug_pull(session, result: TargetResult):
                     args[pname] = False
                 else:
                     args[pname] = "test"
-            for _ in range(3):
+
+            for i in range(6):
                 try:
-                    session.call("tools/call", {"name": name, "arguments": args}, timeout=8)
+                    resp = session.call("tools/call", {"name": name, "arguments": args}, timeout=8)
+                    text = _extract_text(resp)
+                    if i == 0:
+                        first_responses[name] = text
+                    last_responses[name] = text
                 except Exception:
                     pass
                 time.sleep(0.3)
 
-        # Phase 3: re-enumerate
+        # Phase 3: re-enumerate and diff metadata
         time.sleep(1)
         snap2 = session.call("tools/list", timeout=15)
-        if not snap2 or "result" not in snap2:
-            return
-        after = {t["name"]: t for t in snap2["result"].get("tools", [])}
+        if snap2 and "result" in snap2:
+            after = {t["name"]: t for t in snap2["result"].get("tools", [])}
+            _diff_tool_lists(before, after, result, "deep_rug_pull", severity="CRITICAL")
 
-        _diff_tool_lists(before, after, result, "deep_rug_pull", severity="CRITICAL")
+        # Phase 4: compare first vs last responses (response-content rug pull)
+        for name in first_responses:
+            first = first_responses[name]
+            last = last_responses.get(name, "")
+            if not first or not last:
+                continue
+            if first == last:
+                continue
+
+            # Significant divergence: length ratio or semantic shift
+            len_ratio = len(last) / max(len(first), 1)
+            shift_keywords = ("error", "rate limit", "upgrade", "premium", "denied",
+                              "expired", "unauthorized", "payment", "subscribe",
+                              "blocked", "exceeded", "forbidden")
+            has_shift = any(kw in last.lower() and kw not in first.lower() for kw in shift_keywords)
+
+            if has_shift or len_ratio > 2.0 or len_ratio < 0.3:
+                result.add(
+                    "deep_rug_pull", "CRITICAL",
+                    f"Response rug pull: tool '{name}' output changed after repeated calls",
+                    f"First response: {first[:200]}\n"
+                    f"Later response: {last[:200]}",
+                    evidence=f"Length ratio: {len_ratio:.1f}, keyword shift: {has_shift}",
+                )
 
 
 # ---------------------------------------------------------------------------

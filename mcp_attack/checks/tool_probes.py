@@ -31,6 +31,8 @@ from mcp_attack.patterns.probes import (
     CROSS_TOOL_PATTERNS,
     HIDDEN_CONTENT_PATTERNS,
     ERROR_LEAKAGE_PATTERNS,
+    CREDENTIAL_CONTENT_PATTERNS,
+    REFLECTION_PAYLOAD,
     CSS_HIDDEN_PATTERN,
     MD_IMAGE_EXFIL_PATTERN,
     has_invisible_unicode,
@@ -167,7 +169,12 @@ def _scan_response_threats(text: str) -> list[tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 def check_tool_response_injection(session, result: TargetResult):
-    """Call each tool with safe inputs and scan responses for injection / manipulation."""
+    """Call each tool with safe inputs and scan responses for injection / manipulation.
+
+    Also detects input reflection — if a tool echoes user input back in the
+    response, it's an indirect injection conduit (attacker-controlled text
+    ends up in the LLM context via tool output).
+    """
     with time_check("tool_response_injection", result):
         tool_names = {t["name"].lower() for t in result.tools}
 
@@ -201,6 +208,32 @@ def check_tool_response_injection(session, result: TargetResult):
                             "Response attempts cross-tool orchestration",
                             evidence=text[:400],
                         )
+
+        # --- Input reflection detection ---
+        # Send a distinctive payload through each string param and check if
+        # it appears verbatim in the response (indirect injection vector).
+        for tool in result.tools:
+            name = tool.get("name", "")
+            props = tool.get("inputSchema", {}).get("properties", {})
+            base_args = _build_safe_args(tool)
+
+            for pname, pdef in props.items():
+                if pdef.get("type") not in (None, "string"):
+                    continue
+                probe_args = {**base_args, pname: REFLECTION_PAYLOAD}
+                resp = _call_tool(session, name, probe_args, timeout=8)
+                text = _response_text(resp)
+                if text and REFLECTION_PAYLOAD in text:
+                    result.add(
+                        "tool_response_injection",
+                        "HIGH",
+                        f"Tool '{name}' reflects input via param '{pname}'",
+                        "User-controlled text appears verbatim in tool output — "
+                        "indirect injection vector: attacker content can reach the LLM "
+                        "through this tool's response",
+                        evidence=f"Sent: {REFLECTION_PAYLOAD}\nReflected in: {text[:300]}",
+                    )
+                    break  # one reflection finding per tool is enough
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +514,18 @@ def check_resource_poisoning(session, result: TargetResult):
                                 "HIGH",
                                 f"Markdown image exfiltration in resource '{uri}'",
                                 f"Image src: {url}",
+                            )
+
+                    # --- Credential content (actual secrets in resource text) ---
+                    for pat, cred_type in CREDENTIAL_CONTENT_PATTERNS:
+                        m = re.search(pat, text, re.IGNORECASE)
+                        if m:
+                            result.add(
+                                "resource_poisoning",
+                                "CRITICAL",
+                                f"Credential exposed in resource '{uri}': {cred_type}",
+                                f"Resource contains what appears to be a live {cred_type}",
+                                evidence=m.group()[:200],
                             )
 
             except Exception:
