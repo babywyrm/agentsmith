@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mcp-audit-scan
+  namespace: mcp-audit
+  labels:
+    app.kubernetes.io/name: mcp-audit
+    app.kubernetes.io/part-of: agentsmith
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-audit
+    spec:
+      serviceAccountName: mcp-audit
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scanner
+          image: mcp-audit:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--k8s-discover"
+            - "--k8s-discover-namespaces"
+            - "default"
+            - "--verbose"
+            - "--json"
+            - "/reports/scan.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: reports
+              mountPath: /reports
+      volumes:
+        - name: reports
+          emptyDir: {}

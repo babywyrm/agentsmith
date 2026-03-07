@@ -18,7 +18,7 @@ from mcp_attack import __version__
 from mcp_attack.cli import parse_args, build_url_list
 from mcp_attack.scanner import scan_target, run_parallel, detect_cross_shadowing
 from mcp_attack.reporting import print_report, write_json
-from mcp_attack.k8s import run_k8s_checks
+from mcp_attack.k8s import run_k8s_checks, discover_services
 from mcp_attack.diff import (
     load_baseline,
     save_baseline,
@@ -33,7 +33,10 @@ console = Console()
 
 def main():
     args = parse_args()
-    urls = build_url_list(args)
+    if args.k8s_discover and not args.targets and not args.targets_file and not args.public_targets and not args.port_range:
+        urls = []
+    else:
+        urls = build_url_list(args)
 
     baseline = {}
     if args.baseline:
@@ -77,6 +80,21 @@ def main():
 
     if not args.no_k8s:
         run_k8s_checks(args.k8s_namespace, console=console)
+
+    if args.k8s_discover:
+        discovered = discover_services(
+            namespaces=args.k8s_discover_namespaces,
+            probe=not args.k8s_no_probe,
+            console=console,
+        )
+        for ep in discovered:
+            if ep.url not in urls:
+                urls.append(ep.url)
+                console.print(f"  [green]+[/green] Added discovered target: {ep.url}")
+
+    if not urls:
+        console.print("[red]No targets specified and K8s discovery found nothing.[/red]")
+        sys.exit(1)
 
     if len(urls) == 1:
         results = [

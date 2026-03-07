@@ -128,6 +128,24 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip Kubernetes internal checks",
     )
+    p.add_argument(
+        "--k8s-discover",
+        action="store_true",
+        help="Auto-discover MCP targets via K8s service discovery "
+        "(requires running inside a pod with service list permissions)",
+    )
+    p.add_argument(
+        "--k8s-discover-namespaces",
+        nargs="+",
+        metavar="NS",
+        help="Namespaces to scan for MCP services (default: current namespace). "
+        "Use with --k8s-discover.",
+    )
+    p.add_argument(
+        "--k8s-no-probe",
+        action="store_true",
+        help="Skip active probing during K8s discovery (use port matching only)",
+    )
     return p.parse_args(args)
 
 
