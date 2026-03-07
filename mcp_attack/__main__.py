@@ -18,7 +18,7 @@ from mcp_attack import __version__
 from mcp_attack.cli import parse_args, build_url_list
 from mcp_attack.scanner import scan_target, run_parallel, detect_cross_shadowing
 from mcp_attack.reporting import print_report, write_json
-from mcp_attack.k8s import run_k8s_checks, discover_services
+from mcp_attack.k8s import run_k8s_checks, discover_services, fingerprint_services
 from mcp_attack.diff import (
     load_baseline,
     save_baseline,
@@ -81,6 +81,13 @@ def main():
     if not args.no_k8s:
         run_k8s_checks(args.k8s_namespace, console=console)
 
+        import os
+        sa_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        if os.path.exists(sa_token_path):
+            with open(sa_token_path) as _f:
+                _token = _f.read().strip()
+            fingerprint_services(args.k8s_namespace, _token, console=console)
+
     if args.k8s_discover:
         discovered = discover_services(
             namespaces=args.k8s_discover_namespaces,
@@ -93,6 +100,27 @@ def main():
                 console.print(f"  [green]+[/green] Added discovered target: {ep.url}")
 
     if not urls:
+        from mcp_attack.k8s.scanner import GLOBAL_K8S_FINDINGS
+        if GLOBAL_K8S_FINDINGS:
+            console.print(f"\n[bold]── K8s-Only Report ({len(GLOBAL_K8S_FINDINGS)} findings) ──[/bold]")
+            from mcp_attack.core.constants import SEV_COLOR
+            for f in GLOBAL_K8S_FINDINGS:
+                color = SEV_COLOR.get(f.severity, "dim")
+                console.print(f"  [{color}]{f.severity:8s}[/] {f.title}")
+                if f.detail:
+                    console.print(f"           [dim]{f.detail}[/dim]")
+            if args.json_out:
+                import json
+                report = {"k8s_findings": [
+                    {"severity": f.severity, "check": f.check, "title": f.title, "detail": f.detail}
+                    for f in GLOBAL_K8S_FINDINGS
+                ]}
+                from pathlib import Path
+                Path(args.json_out).write_text(json.dumps(report, indent=2))
+                console.print(f"\n[green]JSON report written to {args.json_out}[/green]")
+            if any(f.severity in ("CRITICAL", "HIGH") for f in GLOBAL_K8S_FINDINGS):
+                sys.exit(1)
+            sys.exit(0)
         console.print("[red]No targets specified and K8s discovery found nothing.[/red]")
         sys.exit(1)
 

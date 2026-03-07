@@ -12,6 +12,12 @@ from mcp_attack.k8s.scanner import (
     GLOBAL_K8S_FINDINGS,
     _check_pod_security,
     _check_configmap_leaks,
+    _check_helm_version_drift,
+    _flatten_values,
+)
+from mcp_attack.k8s.fingerprint import (
+    _detect_framework,
+    ServiceFingerprint,
 )
 from mcp_attack.core.models import Finding
 
@@ -177,3 +183,53 @@ class TestConfigMapLeaks:
         }
         _check_configmap_leaks(cm, "default")
         assert len(GLOBAL_K8S_FINDINGS) == 0
+
+
+class TestFlattenValues:
+    def test_simple_dict(self):
+        result = _flatten_values({"a": 1, "b": "hello"})
+        assert result == {"a": 1, "b": "hello"}
+
+    def test_nested_dict(self):
+        result = _flatten_values({"db": {"host": "localhost", "port": 5432}})
+        assert result == {"db.host": "localhost", "db.port": 5432}
+
+    def test_list_values(self):
+        result = _flatten_values({"items": ["a", "b"]})
+        assert result == {"items[0]": "a", "items[1]": "b"}
+
+    def test_deep_nesting(self):
+        result = _flatten_values({"a": {"b": {"c": "deep"}}})
+        assert result == {"a.b.c": "deep"}
+
+
+class TestFrameworkDetection:
+    def test_spring_boot_header(self):
+        headers = {"X-Application-Context": "myapp"}
+        assert _detect_framework(headers, "") == "Spring Boot"
+
+    def test_express_header(self):
+        headers = {"X-Powered-By": "Express"}
+        assert _detect_framework(headers, "") == "Express"
+
+    def test_fastapi_body(self):
+        assert _detect_framework({}, '{"openapi": "3.0"}') == "FastAPI"
+
+    def test_flask_werkzeug(self):
+        headers = {"Server": "Werkzeug/2.0"}
+        assert _detect_framework(headers, "") == "Flask"
+
+    def test_unknown_framework(self):
+        assert _detect_framework({"Server": "custom"}, "hello") == ""
+
+    def test_envoy_header(self):
+        headers = {"x-envoy-upstream-service-time": "42"}
+        assert _detect_framework(headers, "") == "Envoy"
+
+
+class TestServiceFingerprint:
+    def test_dataclass_defaults(self):
+        fp = ServiceFingerprint(service_name="svc", namespace="ns", port=8080)
+        assert fp.exposed_paths == []
+        assert fp.findings == []
+        assert fp.framework == ""

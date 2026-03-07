@@ -29,7 +29,9 @@ spec:
           args:
             - "--k8s-discover"
             - "--k8s-discover-namespaces"
-            - "default"
+            - "hammerhand"
+            - "--k8s-namespace"
+            - "hammerhand"
             - "--verbose"
             - "--json"
             - "/reports/scan.json"
