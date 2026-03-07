@@ -6,6 +6,17 @@ All notable changes to this submodule are documented here.
 
 ### Added
 
+- **Kubernetes deployment and in-cluster scanning** — Run mcp-audit as a K8s Job with full cluster posture auditing:
+  - `k8s/discovery.py` — Auto-discover MCP endpoints via service annotations (`mcp.io/enabled`, `mcp.io/transport`, `mcp.io/path`), well-known port matching, and active MCP protocol probing
+  - `k8s/scanner.py` — Enhanced with pod security checks (privileged containers, hostNetwork/PID, dangerous capabilities, hostPath mounts, missing resource limits), ConfigMap secret scanning, and NetworkPolicy auditing
+  - `k8s/fingerprint.py` — Internal service fingerprinting: detects Spring Boot, Flask, Express, FastAPI, Django, Go, Envoy, Nginx, ASP.NET; probes for exposed actuator, debug/pprof, swagger/openapi, graphiql, and admin endpoints
+  - SA blast radius mapping — Enumerates effective permissions for each ServiceAccount via SelfSubjectRulesReview impersonation, flags overprivileged accounts (secret access, pod exec, wildcard verbs)
+  - Helm release version diffing — Compares decoded values across release versions (v1, v2, ...) to find credentials removed in newer releases that remain recoverable from old release secrets
+  - `k8s/Dockerfile` — Multi-stage Python 3.12-slim image, runs as non-root
+  - `k8s/manifests/` — Kustomize-ready manifests: Namespace, ServiceAccount, ClusterRole/Binding (read-only), Job, CronJob (6h schedule), all with pod security hardening (non-root, read-only rootfs, drop all caps, seccomp)
+  - CLI: `--k8s-discover`, `--k8s-discover-namespaces NS [NS ...]`, `--k8s-no-probe`
+  - K8s-only report mode: prints findings and writes JSON even when no MCP targets are discovered
+
 - **Behavioral probe engine** — 9 new checks that actively call tools and analyze responses, moving beyond static metadata analysis:
   - `check_tool_response_injection` — Calls each tool with safe inputs, scans responses for injection payloads, hidden instructions, exfiltration URLs, invisible Unicode, and base64-encoded attacks
   - `check_input_sanitization` — Sends context-aware probes (path traversal, command injection, template injection, SQL injection) and detects unsanitized reflection. Uses a canary string (`MCP_PROBE_8f4c2a`) to confirm reflection.
@@ -120,7 +131,8 @@ All notable changes to this submodule are documented here.
 
 ### Larger investments
 
-- **Docker image** — Official `agentsmith-mcp` image for easy deployment
+- ~~**Docker image**~~ — ✓ Done. `k8s/Dockerfile` with multi-stage Python 3.12-slim build
+- ~~**Kubernetes deployment**~~ — ✓ Done. Job, CronJob, RBAC, Kustomize manifests with full pod security hardening
 - **Metrics endpoint** — Prometheus `/metrics` for request counts, scan latency, tool usage
 - ~~**Attack chain profiling**~~ — ✓ Done. 17 attack chain patterns with aggregate detection
 - **MCP registry** — Curated list of public MCP servers for periodic scanning

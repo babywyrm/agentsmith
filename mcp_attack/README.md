@@ -220,6 +220,9 @@ Differential:
 Kubernetes:
   --k8s-namespace NS          Namespace for internal checks (default: default)
   --no-k8s                    Skip Kubernetes checks
+  --k8s-discover              Auto-discover MCP targets via K8s service discovery
+  --k8s-discover-namespaces   Namespaces to scan for MCP services
+  --k8s-no-probe              Skip active probing during discovery (port match only)
 ```
 
 ### Scan Modes
@@ -297,6 +300,66 @@ python3 -m pytest mcp_attack/tests/ -v
 
 ---
 
+## Kubernetes Deployment
+
+Deploy mcp-audit as a K8s Job to scan cluster-internal MCP services and
+audit the Kubernetes posture from inside.
+
+### Quick deploy
+
+```bash
+# Build the image
+docker build -f mcp_attack/k8s/Dockerfile -t mcp-audit:latest .
+
+# Deploy with kustomize
+kubectl apply -k mcp_attack/k8s/manifests/
+
+# Check results
+kubectl logs -n mcp-audit -l app.kubernetes.io/name=mcp-audit
+```
+
+### What it checks in-cluster
+
+| Check | What It Finds |
+|-------|--------------|
+| **RBAC enumeration** | Which resources the scanner's SA can access (secrets, configmaps, pods) |
+| **SA blast radius** | Maps effective permissions for every ServiceAccount; flags overprivileged accounts |
+| **Helm secret scanning** | Decodes Helm release secrets (base64→base64→gzip) and scans values for private keys and credentials |
+| **Helm version drift** | Compares release versions to find credentials removed in newer releases but still recoverable from old ones |
+| **Pod security** | Privileged containers, hostNetwork/PID, dangerous capabilities, hostPath mounts, root UID, missing resource limits |
+| **ConfigMap leaks** | Scans ConfigMap data for private keys and credential-named fields |
+| **NetworkPolicy audit** | Flags namespaces with no network policies |
+| **Service fingerprinting** | Identifies frameworks (Spring Boot, Flask, Express, etc.) and probes for exposed actuator, debug, swagger, and admin endpoints |
+| **MCP discovery** | Auto-discovers MCP servers via annotations (`mcp.io/enabled`) and well-known port probing |
+
+### Recurring scans
+
+Use the CronJob manifest for periodic auditing:
+
+```bash
+kubectl apply -f mcp_attack/k8s/manifests/cronjob.yaml
+```
+
+Default schedule: every 6 hours. Edit the `spec.schedule` field to change.
+
+### Customization
+
+Edit `k8s/manifests/job.yaml` args to target specific namespaces:
+
+```yaml
+args:
+  - "--k8s-discover"
+  - "--k8s-discover-namespaces"
+  - "my-namespace"
+  - "--k8s-namespace"
+  - "my-namespace"
+  - "--verbose"
+  - "--json"
+  - "/reports/scan.json"
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -326,7 +389,13 @@ mcp_attack/
 │   └── supply_chain.py  # supply_chain
 ├── data/                # Built-in public_targets.txt
 ├── diff.py              # Differential scanning (baseline save/load/compare)
-├── k8s/                 # Kubernetes internal checks (optional, needs SA token)
+├── k8s/
+│   ├── __init__.py      # Exports: run_k8s_checks, discover_services, fingerprint_services
+│   ├── scanner.py       # RBAC, Helm secrets, pod security, SA blast radius, Helm drift
+│   ├── discovery.py     # MCP service auto-discovery via annotations + port probing
+│   ├── fingerprint.py   # Internal service framework detection + exposed endpoint probing
+│   ├── Dockerfile       # Multi-stage Python 3.12-slim image
+│   └── manifests/       # Kustomize-ready K8s manifests (namespace, SA, RBAC, job, cronjob)
 ├── reporting/
 │   ├── console.py       # Rich table output
 │   └── json_out.py      # JSON report writer
