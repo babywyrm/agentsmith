@@ -311,12 +311,22 @@ audit the Kubernetes posture from inside.
 # Build the image
 docker build -f mcp_attack/k8s/Dockerfile -t mcp-audit:latest .
 
-# Deploy with kustomize
+# Deploy (read-only cluster access)
 kubectl apply -k mcp_attack/k8s/manifests/
+
+# Optional: enable full RBAC auditing (SA blast radius mapping)
+kubectl apply -f mcp_attack/k8s/manifests/rbac-impersonate.yaml
 
 # Check results
 kubectl logs -n mcp-audit -l app.kubernetes.io/name=mcp-audit
 ```
+
+> **Note:** The base deployment grants read-only access to services, pods,
+> secrets, configmaps, and network policies. The optional
+> `rbac-impersonate.yaml` adds ServiceAccount impersonation, which lets the
+> scanner enumerate effective permissions for every SA in the target
+> namespace. This is an elevated privilege -- apply it only if you want
+> complete RBAC auditing. The scanner degrades gracefully without it.
 
 ### What it checks in-cluster
 
