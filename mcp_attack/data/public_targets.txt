@@ -7,7 +7,7 @@
 
 # ── Tier 1: Test infrastructure (localhost) ──────────────────────────
 # DVMCP challenges — deliberately vulnerable, designed for scanning
-# Setup: ./tests/test_dvmcp.sh --setup-only
+# Setup: ./tests/dvmcp_reset.sh --setup-only
 http://localhost:9001/sse
 http://localhost:9002/sse
 http://localhost:9003/sse

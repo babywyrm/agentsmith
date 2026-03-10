@@ -253,7 +253,7 @@ In `--safe-mode`, these are skipped while read-only tools (`get`, `list`,
 
 ```bash
 # Terminal 1: start challenge servers
-./tests/test_dvmcp.sh --setup-only
+./tests/dvmcp_reset.sh --setup-only
 
 # Terminal 2: scan
 mcp-attack --port-range localhost:9001-9010 --verbose
@@ -272,8 +272,8 @@ mcp-attack --targets http://localhost:5000/execute --tool-names-file my_tools.tx
 The scanner auto-detects non-MCP tool servers by probing 20+ common
 execute/invoke paths and fingerprints the framework (Flask, FastAPI, Express,
 Spring Boot, etc.) from response headers. Tools are enumerated from a
-wordlist (`data/tool_names.txt`, ~90 names) and all static + behavioral
-checks run against discovered tools.
+built-in wordlist (`data/tool_names.txt`, 84 names) supplemented by any
+custom wordlist. All static + behavioral checks run against discovered tools.
 
 ### Authenticated endpoint (GitHub MCP)
 
@@ -413,45 +413,48 @@ args:
 ```
 mcp_attack/
 ├── core/
-│   ├── constants.py     # Protocol versions, severity weights, attack chain patterns
-│   ├── enumerator.py    # MCP handshake: initialize → list tools/resources/prompts
-│   ├── models.py        # Finding, TargetResult dataclasses
-│   └── session.py       # SSE + HTTP + ToolServer transport detection and sessions
+│   ├── constants.py       # Protocol versions, severity weights, attack chain patterns
+│   ├── enumerator.py      # MCP handshake: initialize → list tools/resources/prompts
+│   ├── models.py          # Finding, TargetResult dataclasses
+│   └── session.py         # SSE + HTTP + ToolServer transport detection and sessions
 ├── patterns/
-│   ├── rules.py         # Static regex patterns (injection, poison, theft, exec, etc.)
-│   └── probes.py        # Behavioral probe payloads, canary strings, response analysis
+│   ├── rules.py           # Static regex patterns (injection, poison, theft, exec, etc.)
+│   └── probes.py          # Behavioral probe payloads, canary strings, response analysis
 ├── checks/
-│   ├── __init__.py      # Check registry and run_all_checks() orchestrator
-│   ├── base.py          # time_check context manager
-│   ├── injection.py     # prompt_injection, tool_poisoning, indirect_injection
-│   ├── permissions.py   # excessive_permissions, schema_risks
-│   ├── behavioral.py    # rug_pull, deep_rug_pull, state_mutation, notification_abuse
-│   ├── tool_probes.py   # tool_response_injection, input_sanitization, error_leakage,
-│   │                    # temporal_consistency, resource_poisoning, cross_tool_manipulation
-│   ├── theft.py         # token_theft
-│   ├── execution.py     # code_execution, remote_access
-│   ├── chaining.py      # tool_shadowing, multi_vector, attack_chains
-│   ├── transport.py     # sse_security (CORS, unauth SSE, cross-origin POST)
-│   ├── rate_limit.py    # rate_limit
-│   ├── prompt_leakage.py # prompt_leakage
-│   └── supply_chain.py  # supply_chain
-├── data/                # Built-in public_targets.txt
-├── diff.py              # Differential scanning (baseline save/load/compare)
+│   ├── __init__.py        # Check registry and run_all_checks() orchestrator
+│   ├── base.py            # time_check context manager
+│   ├── injection.py       # prompt_injection, tool_poisoning, indirect_injection
+│   ├── permissions.py     # excessive_permissions, schema_risks
+│   ├── behavioral.py      # rug_pull, deep_rug_pull, state_mutation, notification_abuse
+│   ├── tool_probes.py     # tool_response_injection, input_sanitization, error_leakage,
+│   │                      # temporal_consistency, resource_poisoning, cross_tool_manipulation
+│   ├── theft.py           # token_theft
+│   ├── execution.py       # code_execution, remote_access
+│   ├── chaining.py        # tool_shadowing, multi_vector, attack_chains
+│   ├── transport.py       # sse_security (CORS, unauth SSE, cross-origin POST)
+│   ├── rate_limit.py      # rate_limit
+│   ├── prompt_leakage.py  # prompt_leakage
+│   └── supply_chain.py    # supply_chain
+├── data/
+│   ├── public_targets.txt # Built-in target URLs (DVMCP, public MCP servers)
+│   └── tool_names.txt     # Wordlist for ToolServer tool enumeration (84 names)
+├── diff.py                # Differential scanning (baseline save/load/compare)
 ├── k8s/
-│   ├── __init__.py      # Exports: run_k8s_checks, discover_services, fingerprint_services
-│   ├── scanner.py       # RBAC, Helm secrets, pod security, SA blast radius, Helm drift
-│   ├── discovery.py     # MCP service auto-discovery via annotations + port probing
-│   ├── fingerprint.py   # Internal service framework detection + exposed endpoint probing
-│   ├── Dockerfile       # Multi-stage Python 3.12-slim image
-│   └── manifests/       # Kustomize-ready K8s manifests (namespace, SA, RBAC, job, cronjob)
+│   ├── __init__.py        # Exports: run_k8s_checks, discover_services, fingerprint_services
+│   ├── scanner.py         # RBAC, Helm secrets, pod security, SA blast radius, Helm drift
+│   ├── discovery.py       # MCP + tool-server auto-discovery via annotations + port probing
+│   ├── fingerprint.py     # Internal service framework detection + exposed endpoint probing
+│   ├── Dockerfile         # Multi-stage Python 3.12-slim image
+│   └── manifests/         # Kustomize-ready: namespace, SA, RBAC, job, cronjob, impersonate
 ├── reporting/
-│   ├── console.py       # Rich table output
-│   └── json_out.py      # JSON report writer
-├── tests/               # Pytest suite
-├── scanner.py           # Scan orchestration, parallel execution, cross-target analysis
-├── cli.py               # Argument parsing
-├── mcp_audit.py         # Alternate entry point
-└── __main__.py          # python -m mcp_attack entry point
+│   ├── console.py         # Rich table output
+│   └── json_out.py        # JSON report writer
+├── tests/                 # Pytest suite (71 tests)
+├── scanner.py             # Scan orchestration, parallel execution, cross-target analysis
+├── cli.py                 # Argument parsing
+├── mcp_audit.py           # Alternate entry point
+├── requirements.txt       # Runtime dependencies (httpx, rich, pytest)
+└── __main__.py            # python -m mcp_attack entry point
 ```
 
 ---
@@ -547,7 +550,3 @@ mcp-attack --port-range localhost:9001-9010 --no-invoke
 ## Exit Code
 
 Exits **1** if any CRITICAL or HIGH findings; **0** otherwise.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for version history and planned work.

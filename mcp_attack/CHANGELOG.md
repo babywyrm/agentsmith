@@ -23,7 +23,7 @@ All notable changes to this submodule are documented here.
 
 - **Custom tool-server detection (`ToolServerSession`)** — Scans non-MCP tool-execute APIs (e.g. `POST /execute` with `{"tool": "...", "query": "..."}`):
   - Auto-detects tool servers by probing `/execute`, `/tools/execute`, `/api/execute`, `/run` with tool-style payloads; recognizes servers from 200+JSON or 400 "unknown tool" responses
-  - Enumerates available tools by probing 16 common tool names (get_cluster_health, cluster_diagnostics, restart_service, etc.)
+  - Enumerates available tools from a built-in wordlist of 84 tool names (`data/tool_names.txt`), supplemented by optional `--tool-names-file`
   - Translates MCP-style `tools/call` into tool-server POST requests so all existing static and behavioral checks run natively
   - Fallback in `detect_transport`: tried after SSE and HTTP JSON-RPC detection fail
   - Tightened JSON-RPC error detection: removed overly broad `"error" in body` match that falsely classified custom APIs as MCP
@@ -121,7 +121,7 @@ All notable changes to this submodule are documented here.
   - `--public-targets` — Use built-in list in `data/public_targets.txt` (DVMCP localhost URLs)
 
 - **Data**
-  - `data/public_targets.txt` — Built-in targets for DVMCP (localhost:9001–9005)
+  - `data/public_targets.txt` — Built-in targets for DVMCP (localhost:9001–9010) and public MCP servers
 
 - **Test suite**
   - `tests/` — Pytest suite (38 tests) for checks, CLI, patterns, diff, and integration

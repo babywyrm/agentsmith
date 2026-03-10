@@ -2,10 +2,11 @@
 
 import json
 import queue
+import re
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 
@@ -228,7 +229,6 @@ class HTTPSession:
         self.post_url = post_url
         self.timeout = timeout
         self._req_id = 0
-        self._stop = threading.Event()
         self._headers = headers or {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
         self._client = httpx.Client(
             verify=False, timeout=timeout, follow_redirects=True
@@ -354,7 +354,7 @@ def _load_tool_names(extra_file: str | None = None) -> list[str]:
     return names
 
 
-def _fingerprint_tool_server(headers: dict, body: str, status_code: int) -> dict:
+def _fingerprint_tool_server(headers: dict, body: str) -> dict:
     """Fingerprint a tool server from HTTP response metadata."""
     info: dict = {}
 
@@ -462,7 +462,6 @@ class ToolServerSession:
                 # Infer params from error messages like "service_name is required"
                 err = data.get("error", "")
                 if isinstance(err, str):
-                    import re
                     req_match = re.search(r"(\w+)\s+is\s+required", err, re.IGNORECASE)
                     if req_match:
                         param = req_match.group(1)
@@ -629,7 +628,7 @@ def _detect_tool_server(
                         is_tool_server = False
 
                     if is_tool_server:
-                        fp = _fingerprint_tool_server(resp_headers, r.text, r.status_code)
+                        fp = _fingerprint_tool_server(resp_headers, r.text)
                         return ToolServerSession(
                             base, url, timeout=timeout, headers=headers,
                             tool_names_file=tool_names_file, fingerprint=fp,

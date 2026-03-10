@@ -16,7 +16,7 @@ import os
 import ssl
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 MCP_ANNOTATION_ENABLED = "mcp.io/enabled"
 MCP_ANNOTATION_TRANSPORT = "mcp.io/transport"

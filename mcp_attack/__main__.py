@@ -90,7 +90,7 @@ def main():
             fingerprint_services(
                 args.k8s_namespace,
                 _token,
-                fingerprint_workers=getattr(args, "k8s_discovery_workers", 10),
+                fingerprint_workers=args.k8s_discovery_workers,
                 console=console,
             )
 
@@ -98,8 +98,8 @@ def main():
         discovered = discover_services(
             namespaces=args.k8s_discover_namespaces,
             probe=not args.k8s_no_probe,
-            discovery_workers=getattr(args, "k8s_discovery_workers", 10),
-            max_endpoints=getattr(args, "k8s_max_endpoints", None),
+            discovery_workers=args.k8s_discovery_workers,
+            max_endpoints=args.k8s_max_endpoints,
             console=console,
         )
         if args.k8s_discover_only:
