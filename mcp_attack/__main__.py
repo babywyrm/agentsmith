@@ -71,6 +71,7 @@ def main():
         "no_invoke": args.no_invoke,
         "safe_mode": args.safe_mode,
         "probe_calls": args.probe_calls,
+        "tool_names_file": getattr(args, "tool_names_file", None),
     }
 
     if args.no_invoke:

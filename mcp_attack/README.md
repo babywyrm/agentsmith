@@ -64,8 +64,9 @@ All commands also work as `mcp-audit` or `python3 -m mcp_attack`.
 ## How It Works
 
 ```
-1. CONNECT        Detect transport (SSE or Streamable HTTP)
+1. CONNECT        Detect transport (SSE, Streamable HTTP, or custom tool server)
 2. ENUMERATE      initialize → tools/list → resources/list → prompts/list
+                  (or probe tool names for non-MCP /execute APIs)
 3. STATIC CHECKS  Pattern-match metadata (names, descriptions, schemas)
 4. PROBE          Call tools with safe payloads, read resources
 5. ANALYZE        Scan responses for injection, exfil, leakage, drift
@@ -125,7 +126,7 @@ The scanner runs checks in a deliberate order:
 
 | Check | Severity | What It Detects |
 |-------|----------|----------------|
-| `auth` | HIGH | Unauthenticated MCP initialize accepted |
+| `auth` | HIGH | Unauthenticated MCP/tool-server initialize accepted |
 | `sse_security` | HIGH–MEDIUM | Unauthenticated SSE stream, CORS misconfiguration, cross-origin POST |
 | `multi_vector` | CRITICAL | 2+ dangerous vulnerability categories active on one server |
 | `attack_chain` | CRITICAL | Linked vulnerability pairs (e.g. `input_sanitization → code_execution`) |
@@ -208,6 +209,9 @@ Safety Controls:
   --safe-mode                 Skip dangerous tools (delete/send/exec/write), probe read-only
   --probe-calls N             Invocations per tool for deep rug pull (default: 6)
 
+Tool Server:
+  --tool-names-file FILE      Custom wordlist for ToolServer enumeration (supplements built-in)
+
 Output:
   --json FILE                 Write JSON report to FILE
   --verbose, -v               Verbose output
@@ -254,6 +258,22 @@ In `--safe-mode`, these are skipped while read-only tools (`get`, `list`,
 # Terminal 2: scan
 mcp-attack --port-range localhost:9001-9010 --verbose
 ```
+
+### Custom tool server (non-MCP /execute API)
+
+```bash
+# Servers that use POST /execute with {"tool": "...", "query": "..."} instead of MCP
+mcp-attack --targets http://localhost:5000/execute --verbose
+
+# With custom tool names wordlist for a specific engagement
+mcp-attack --targets http://localhost:5000/execute --tool-names-file my_tools.txt
+```
+
+The scanner auto-detects non-MCP tool servers by probing 20+ common
+execute/invoke paths and fingerprints the framework (Flask, FastAPI, Express,
+Spring Boot, etc.) from response headers. Tools are enumerated from a
+wordlist (`data/tool_names.txt`, ~90 names) and all static + behavioral
+checks run against discovered tools.
 
 ### Authenticated endpoint (GitHub MCP)
 
@@ -358,6 +378,7 @@ kubectl logs -n mcp-audit -l app.kubernetes.io/name=mcp-audit
 | **NetworkPolicy audit** | Flags namespaces with no network policies |
 | **Service fingerprinting** | Identifies frameworks (Spring Boot, Flask, Express, etc.) and probes for exposed actuator, debug, swagger, and admin endpoints |
 | **MCP discovery** | Auto-discovers MCP servers via annotations (`mcp.io/enabled`) and well-known port probing |
+| **Tool server detection** | Detects non-MCP tool-execute APIs (`POST /execute`) by probing with tool-style payloads; enumerates available tools by name |
 
 ### Recurring scans
 
@@ -395,7 +416,7 @@ mcp_attack/
 │   ├── constants.py     # Protocol versions, severity weights, attack chain patterns
 │   ├── enumerator.py    # MCP handshake: initialize → list tools/resources/prompts
 │   ├── models.py        # Finding, TargetResult dataclasses
-│   └── session.py       # SSE + HTTP transport detection and JSON-RPC session
+│   └── session.py       # SSE + HTTP + ToolServer transport detection and sessions
 ├── patterns/
 │   ├── rules.py         # Static regex patterns (injection, poison, theft, exec, etc.)
 │   └── probes.py        # Behavioral probe payloads, canary strings, response analysis

@@ -165,6 +165,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run K8s discovery and print endpoint list only; skip MCP scanning. Use with --json to export URLs.",
     )
+    p.add_argument(
+        "--tool-names-file",
+        metavar="FILE",
+        help="Custom wordlist of tool names for ToolServer enumeration "
+        "(one per line, # comments). Supplements the built-in list.",
+    )
     return p.parse_args(args)
 
 

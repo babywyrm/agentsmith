@@ -54,8 +54,10 @@ def scan_target(
     t_start = time.time()
     console.print(f"\n[bold cyan]▶ {url}[/bold cyan]")
 
+    opts = probe_opts or {}
     session = detect_transport(
-        url, connect_timeout=timeout, verbose=verbose, auth_token=auth_token
+        url, connect_timeout=timeout, verbose=verbose, auth_token=auth_token,
+        tool_names_file=opts.get("tool_names_file"),
     )
 
     if not session:
@@ -65,13 +67,22 @@ def scan_target(
             "transport",
             "HIGH",
             "No MCP endpoint found",
-            "Tried SSE + HTTP POST on common paths",
+            "Tried SSE + HTTP POST + ToolServer on common paths",
         )
         result.timings["total"] = time.time() - t_start
         return result
 
     if isinstance(session, ToolServerSession):
         transport_label = "ToolServer"
+        fp = session.fingerprint
+        if fp:
+            fp_parts = []
+            if fp.get("framework"):
+                fp_parts.append(f"framework={fp['framework']}")
+            if fp.get("server_header"):
+                fp_parts.append(f"server={fp['server_header']}")
+            if fp_parts:
+                transport_label += f" ({', '.join(fp_parts)})"
     elif hasattr(session, "sse_url") and session.sse_url:
         transport_label = "SSE"
     else:

@@ -1,9 +1,10 @@
-"""MCP session handling: SSE and HTTP transport detection."""
+"""MCP session handling: SSE, HTTP, and ToolServer transport detection."""
 
 import json
 import queue
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -302,12 +303,91 @@ TOOL_SERVER_PROBES = [
     {"tool": ""},
 ]
 
-TOOL_ENUM_NAMES = [
-    "get_cluster_health", "get_pod_status", "get_node_metrics",
-    "restart_service", "cluster_diagnostics", "list_tools",
-    "health", "status", "help", "execute", "run_command",
-    "get_logs", "get_config", "deploy", "rollback", "scale",
+_DEFAULT_TOOL_NAMES_FILE = Path(__file__).parent.parent / "data" / "tool_names.txt"
+
+TOOL_EXECUTE_PATHS = [
+    "/execute", "/tools/execute", "/api/execute", "/run",
+    "/api/run", "/invoke", "/api/invoke", "/tools/run",
+    "/tool", "/api/tool", "/v1/execute", "/v1/run",
+    "/v1/invoke", "/v1/tool", "/rpc/execute",
+    "/action", "/api/action", "/command", "/api/command",
 ]
+
+_TOOL_SERVER_FRAMEWORKS = {
+    "Flask": [("Server", "Werkzeug"), ("Server", "Python")],
+    "FastAPI": [("Server", "uvicorn"), (None, '"detail"')],
+    "Express": [("X-Powered-By", "Express")],
+    "Spring Boot": [("X-Application-Context", None)],
+    "Django": [("X-Frame-Options", "DENY")],
+    "Go net/http": [("Content-Type", "text/plain; charset=utf-8")],
+    "ASP.NET": [("X-Powered-By", "ASP.NET")],
+}
+
+
+def _load_tool_names(extra_file: str | None = None) -> list[str]:
+    """Load tool names from default wordlist + optional custom file."""
+    names: list[str] = []
+    seen: set[str] = set()
+
+    for path in [_DEFAULT_TOOL_NAMES_FILE, extra_file]:
+        if path is None:
+            continue
+        p = Path(path)
+        if not p.is_file():
+            continue
+        with open(p) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line not in seen:
+                    seen.add(line)
+                    names.append(line)
+
+    if not names:
+        names = [
+            "get_cluster_health", "get_pod_status", "get_node_metrics",
+            "restart_service", "cluster_diagnostics", "list_tools",
+            "health", "status", "help", "execute", "run_command",
+            "get_logs", "get_config", "deploy", "rollback", "scale",
+        ]
+    return names
+
+
+def _fingerprint_tool_server(headers: dict, body: str, status_code: int) -> dict:
+    """Fingerprint a tool server from HTTP response metadata."""
+    info: dict = {}
+
+    for fw, sigs in _TOOL_SERVER_FRAMEWORKS.items():
+        for header_key, match_val in sigs:
+            if header_key:
+                for k, v in headers.items():
+                    if k.lower() == header_key.lower():
+                        if match_val is None or match_val.lower() in v.lower():
+                            info["framework"] = fw
+                            break
+            elif match_val and match_val.lower() in body.lower():
+                info["framework"] = fw
+            if "framework" in info:
+                break
+        if "framework" in info:
+            break
+
+    server = headers.get("Server", headers.get("server", ""))
+    if server:
+        info["server_header"] = server
+
+    for h in ("X-Request-Id", "X-Trace-Id", "X-Correlation-Id"):
+        for k in headers:
+            if k.lower() == h.lower():
+                info["has_request_tracing"] = True
+                break
+
+    ct = headers.get("Content-Type", headers.get("content-type", ""))
+    if ct:
+        info["content_type"] = ct
+
+    return info
 
 
 class ToolServerSession:
@@ -317,7 +397,15 @@ class ToolServerSession:
     using the same interface as MCPSession/HTTPSession.
     """
 
-    def __init__(self, base: str, post_url: str, timeout: float = 25.0, headers: dict | None = None):
+    def __init__(
+        self,
+        base: str,
+        post_url: str,
+        timeout: float = 25.0,
+        headers: dict | None = None,
+        tool_names_file: str | None = None,
+        fingerprint: dict | None = None,
+    ):
         self.base = base
         self.sse_url = ""
         self.post_url = post_url
@@ -325,15 +413,18 @@ class ToolServerSession:
         self._headers = headers or {"Content-Type": "application/json"}
         self._client = httpx.Client(verify=False, timeout=timeout, follow_redirects=True)
         self._discovered_tools: list[dict] = []
+        self._tool_names_file = tool_names_file
+        self.fingerprint: dict = fingerprint or {}
 
     def wait_ready(self, timeout: float = 10.0) -> bool:
         return True
 
     def enumerate_tools(self) -> list[dict]:
-        """Probe known tool names and return the ones the server recognizes."""
+        """Probe tool names from wordlist and return the ones the server recognizes."""
+        names = _load_tool_names(self._tool_names_file)
         tools = []
         seen = set()
-        for name in TOOL_ENUM_NAMES:
+        for name in names:
             if name in seen:
                 continue
             seen.add(name)
@@ -346,34 +437,59 @@ class ToolServerSession:
                 )
                 body = r.text.lower()
                 if r.status_code == 200:
-                    tool_def = {
-                        "name": name,
-                        "description": f"Tool server endpoint (status {r.status_code})",
-                        "inputSchema": {"type": "object", "properties": {}},
-                    }
-                    try:
-                        data = r.json()
-                        if isinstance(data, dict):
-                            tool_def["description"] = f"Returns: {', '.join(data.keys())}"
-                            if "query" in str(data) or name == "cluster_diagnostics":
-                                tool_def["inputSchema"]["properties"]["query"] = {
-                                    "type": "string", "description": "Query/command to run"
-                                }
-                                tool_def["inputSchema"]["required"] = ["query"]
-                    except Exception:
-                        pass
+                    tool_def = self._build_tool_def(name, r)
                     tools.append(tool_def)
                 elif r.status_code in (400, 403, 422) and "unknown tool" not in body:
-                    tool_def = {
-                        "name": name,
-                        "description": f"Tool server endpoint (status {r.status_code})",
-                        "inputSchema": {"type": "object", "properties": {}},
-                    }
+                    tool_def = self._build_tool_def(name, r)
                     tools.append(tool_def)
             except Exception:
                 pass
         self._discovered_tools = tools
         return tools
+
+    def _build_tool_def(self, name: str, r) -> dict:
+        """Build a tool definition from a probe response."""
+        tool_def: dict = {
+            "name": name,
+            "description": f"Tool server endpoint (status {r.status_code})",
+            "inputSchema": {"type": "object", "properties": {}},
+        }
+        try:
+            data = r.json()
+            if isinstance(data, dict):
+                tool_def["description"] = f"Returns: {', '.join(data.keys())}"
+
+                # Infer params from error messages like "service_name is required"
+                err = data.get("error", "")
+                if isinstance(err, str):
+                    import re
+                    req_match = re.search(r"(\w+)\s+is\s+required", err, re.IGNORECASE)
+                    if req_match:
+                        param = req_match.group(1)
+                        tool_def["inputSchema"]["properties"][param] = {
+                            "type": "string", "description": f"Required: {param}"
+                        }
+                        tool_def["inputSchema"].setdefault("required", []).append(param)
+
+                # Detect query/command params from response keys or known tool names
+                exec_indicators = ("query", "command", "cmd", "expression", "code", "script")
+                name_lower = name.lower()
+                has_exec_hint = any(kw in name_lower for kw in (
+                    "diagnostic", "execute", "run", "shell", "eval", "command", "query",
+                ))
+                response_keys = str(data.keys()).lower()
+                if has_exec_hint or any(k in response_keys for k in exec_indicators):
+                    for param in exec_indicators:
+                        if param in response_keys or (has_exec_hint and param == "query"):
+                            if param not in tool_def["inputSchema"]["properties"]:
+                                tool_def["inputSchema"]["properties"][param] = {
+                                    "type": "string", "description": f"{param.title()} to execute"
+                                }
+                                tool_def["inputSchema"].setdefault("required", []).append(param)
+                            break
+        except Exception:
+            pass
+        return tool_def
 
     def call(
         self,
@@ -386,10 +502,15 @@ class ToolServerSession:
         params = params or {}
 
         if method == "initialize":
+            fw = self.fingerprint.get("framework", "unknown")
+            server_hdr = self.fingerprint.get("server_header", "")
+            name = f"tool-server ({fw})" if fw != "unknown" else "tool-server"
+            version = server_hdr or "unknown"
             return {"jsonrpc": "2.0", "id": 1, "result": {
                 "protocolVersion": "custom-tool-server",
-                "serverInfo": {"name": "tool-server", "version": "unknown"},
+                "serverInfo": {"name": name, "version": version},
                 "capabilities": {"tools": {}},
+                "_fingerprint": self.fingerprint,
             }}
 
         if method == "tools/list":
@@ -441,48 +562,83 @@ class ToolServerSession:
 
 
 def _detect_tool_server(
-    base: str, hint: str | None, timeout: float, auth_token: str | None
+    base: str,
+    hint: str | None,
+    timeout: float,
+    auth_token: str | None,
+    tool_names_file: str | None = None,
 ) -> ToolServerSession | None:
-    """Try to detect a custom tool-execute API (non-MCP)."""
+    """Try to detect a custom tool-execute API (non-MCP).
+
+    Probes the hint path first, then TOOL_EXECUTE_PATHS. Uses 404 vs 400/200
+    to distinguish "path exists but wrong payload" from "path doesn't exist."
+    """
     headers = {"Content-Type": "application/json"}
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
 
-    paths_to_try = []
+    paths_to_try: list[str] = []
     if hint:
         paths_to_try.append(hint)
-    paths_to_try.extend(["/execute", "/tools/execute", "/api/execute", "/run"])
+    paths_to_try.extend(TOOL_EXECUTE_PATHS)
 
-    seen = set()
-    for path in paths_to_try:
-        if path in seen:
-            continue
-        seen.add(path)
-        url = base + path
-        for probe in TOOL_SERVER_PROBES:
+    seen: set[str] = set()
+    client = httpx.Client(verify=False, timeout=5, follow_redirects=True)
+
+    try:
+        for path in paths_to_try:
+            if path in seen:
+                continue
+            seen.add(path)
+            url = base + path
+
+            # Quick 404 check: if GET returns 404, skip this path entirely
             try:
-                client = httpx.Client(verify=False, timeout=5, follow_redirects=True)
-                r = client.post(url, json=probe, headers=headers)
-                client.close()
-                body = r.text.lower()
-
-                # 200 with JSON = tool server
-                if r.status_code == 200:
-                    try:
-                        r.json()
-                        return ToolServerSession(base, url, timeout=timeout, headers=headers)
-                    except Exception:
-                        pass
-
-                # 400 with "unknown tool" or "error" = tool server (it parsed the request)
-                if r.status_code in (400, 403, 422) and (
-                    "unknown tool" in body
-                    or "tool" in body and "error" in body
-                ):
-                    return ToolServerSession(base, url, timeout=timeout, headers=headers)
-
+                get_r = client.get(url, headers={"Accept": "application/json"})
+                if get_r.status_code == 404:
+                    continue
             except Exception:
                 pass
+
+            for probe in TOOL_SERVER_PROBES:
+                try:
+                    r = client.post(url, json=probe, headers=headers)
+                    body = r.text.lower()
+                    resp_headers = dict(r.headers)
+
+                    is_tool_server = False
+
+                    if r.status_code == 200:
+                        try:
+                            r.json()
+                            is_tool_server = True
+                        except Exception:
+                            pass
+
+                    if r.status_code in (400, 403, 422) and (
+                        "unknown tool" in body
+                        or ("tool" in body and "error" in body)
+                        or "invalid tool" in body
+                        or "not found" in body and "tool" in body
+                        or "required" in body and ("tool" in body or "name" in body)
+                    ):
+                        is_tool_server = True
+
+                    # 405 Method Not Allowed on GET but path accepts POST = likely tool server
+                    if r.status_code == 405:
+                        is_tool_server = False
+
+                    if is_tool_server:
+                        fp = _fingerprint_tool_server(resp_headers, r.text, r.status_code)
+                        return ToolServerSession(
+                            base, url, timeout=timeout, headers=headers,
+                            tool_names_file=tool_names_file, fingerprint=fp,
+                        )
+
+                except Exception:
+                    pass
+    finally:
+        client.close()
 
     return None
 
@@ -492,6 +648,7 @@ def detect_transport(
     connect_timeout: float = 25.0,
     verbose: bool = False,
     auth_token: str | None = None,
+    **kwargs,
 ) -> MCPSession | HTTPSession | ToolServerSession | None:
     parsed = urlparse(url)
     base = f"{parsed.scheme}://{parsed.netloc}"
@@ -574,7 +731,10 @@ def detect_transport(
     client.close()
 
     # Fallback: try custom tool-server detection (non-MCP /execute APIs)
-    tool_session = _detect_tool_server(base, hint, connect_timeout, auth_token)
+    tool_session = _detect_tool_server(
+        base, hint, connect_timeout, auth_token,
+        tool_names_file=kwargs.get("tool_names_file"),
+    )
     if tool_session:
         return tool_session
 
