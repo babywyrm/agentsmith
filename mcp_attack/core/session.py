@@ -293,12 +293,206 @@ class HTTPSession:
             pass
 
 
+TOOL_SERVER_PROBES = [
+    {"tool": "get_cluster_health"},
+    {"tool": "list_tools"},
+    {"tool": "health"},
+    {"tool": "help"},
+    {"tool": "status"},
+    {"tool": ""},
+]
+
+TOOL_ENUM_NAMES = [
+    "get_cluster_health", "get_pod_status", "get_node_metrics",
+    "restart_service", "cluster_diagnostics", "list_tools",
+    "health", "status", "help", "execute", "run_command",
+    "get_logs", "get_config", "deploy", "rollback", "scale",
+]
+
+
+class ToolServerSession:
+    """Session for custom tool-execute APIs (e.g. POST /execute with {"tool": "...", ...}).
+
+    Wraps the non-MCP tool server so the scanner can enumerate tools and run checks
+    using the same interface as MCPSession/HTTPSession.
+    """
+
+    def __init__(self, base: str, post_url: str, timeout: float = 25.0, headers: dict | None = None):
+        self.base = base
+        self.sse_url = ""
+        self.post_url = post_url
+        self.timeout = timeout
+        self._headers = headers or {"Content-Type": "application/json"}
+        self._client = httpx.Client(verify=False, timeout=timeout, follow_redirects=True)
+        self._discovered_tools: list[dict] = []
+
+    def wait_ready(self, timeout: float = 10.0) -> bool:
+        return True
+
+    def enumerate_tools(self) -> list[dict]:
+        """Probe known tool names and return the ones the server recognizes."""
+        tools = []
+        seen = set()
+        for name in TOOL_ENUM_NAMES:
+            if name in seen:
+                continue
+            seen.add(name)
+            try:
+                r = self._client.post(
+                    self.post_url,
+                    json={"tool": name},
+                    headers=self._headers,
+                    timeout=5,
+                )
+                body = r.text.lower()
+                if r.status_code == 200:
+                    tool_def = {
+                        "name": name,
+                        "description": f"Tool server endpoint (status {r.status_code})",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                    try:
+                        data = r.json()
+                        if isinstance(data, dict):
+                            tool_def["description"] = f"Returns: {', '.join(data.keys())}"
+                            if "query" in str(data) or name == "cluster_diagnostics":
+                                tool_def["inputSchema"]["properties"]["query"] = {
+                                    "type": "string", "description": "Query/command to run"
+                                }
+                                tool_def["inputSchema"]["required"] = ["query"]
+                    except Exception:
+                        pass
+                    tools.append(tool_def)
+                elif r.status_code in (400, 403, 422) and "unknown tool" not in body:
+                    tool_def = {
+                        "name": name,
+                        "description": f"Tool server endpoint (status {r.status_code})",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                    tools.append(tool_def)
+            except Exception:
+                pass
+        self._discovered_tools = tools
+        return tools
+
+    def call(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float | None = None,
+        retries: int = 2,
+    ) -> dict | None:
+        """Translate MCP-style calls to tool-server /execute calls."""
+        params = params or {}
+
+        if method == "initialize":
+            return {"jsonrpc": "2.0", "id": 1, "result": {
+                "protocolVersion": "custom-tool-server",
+                "serverInfo": {"name": "tool-server", "version": "unknown"},
+                "capabilities": {"tools": {}},
+            }}
+
+        if method == "tools/list":
+            tools = self._discovered_tools or self.enumerate_tools()
+            return {"jsonrpc": "2.0", "id": 1, "result": {"tools": tools}}
+
+        if method == "resources/list":
+            return {"jsonrpc": "2.0", "id": 1, "result": {"resources": []}}
+
+        if method == "prompts/list":
+            return {"jsonrpc": "2.0", "id": 1, "result": {"prompts": []}}
+
+        if method == "tools/call":
+            tool_name = params.get("name", "")
+            arguments = params.get("arguments", {})
+            payload = {"tool": tool_name, **arguments}
+            for attempt in range(retries + 1):
+                try:
+                    r = self._client.post(
+                        self.post_url,
+                        json=payload,
+                        headers=self._headers,
+                        timeout=timeout or self.timeout,
+                    )
+                    try:
+                        data = r.json()
+                    except Exception:
+                        data = {"text": r.text}
+                    return {"jsonrpc": "2.0", "id": 1, "result": {
+                        "content": [{"type": "text", "text": json.dumps(data)}],
+                        "isError": r.status_code >= 400,
+                        "_status_code": r.status_code,
+                    }}
+                except Exception:
+                    if attempt < retries:
+                        time.sleep(0.5)
+            return None
+
+        return None
+
+    def notify(self, method: str, params: dict | None = None):
+        pass
+
+    def close(self):
+        try:
+            self._client.close()
+        except Exception:
+            pass
+
+
+def _detect_tool_server(
+    base: str, hint: str | None, timeout: float, auth_token: str | None
+) -> ToolServerSession | None:
+    """Try to detect a custom tool-execute API (non-MCP)."""
+    headers = {"Content-Type": "application/json"}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    paths_to_try = []
+    if hint:
+        paths_to_try.append(hint)
+    paths_to_try.extend(["/execute", "/tools/execute", "/api/execute", "/run"])
+
+    seen = set()
+    for path in paths_to_try:
+        if path in seen:
+            continue
+        seen.add(path)
+        url = base + path
+        for probe in TOOL_SERVER_PROBES:
+            try:
+                client = httpx.Client(verify=False, timeout=5, follow_redirects=True)
+                r = client.post(url, json=probe, headers=headers)
+                client.close()
+                body = r.text.lower()
+
+                # 200 with JSON = tool server
+                if r.status_code == 200:
+                    try:
+                        r.json()
+                        return ToolServerSession(base, url, timeout=timeout, headers=headers)
+                    except Exception:
+                        pass
+
+                # 400 with "unknown tool" or "error" = tool server (it parsed the request)
+                if r.status_code in (400, 403, 422) and (
+                    "unknown tool" in body
+                    or "tool" in body and "error" in body
+                ):
+                    return ToolServerSession(base, url, timeout=timeout, headers=headers)
+
+            except Exception:
+                pass
+
+    return None
+
+
 def detect_transport(
     url: str,
     connect_timeout: float = 25.0,
     verbose: bool = False,
     auth_token: str | None = None,
-) -> MCPSession | HTTPSession | None:
+) -> MCPSession | HTTPSession | ToolServerSession | None:
     parsed = urlparse(url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     hint = parsed.path.rstrip("/") or None
@@ -344,7 +538,6 @@ def detect_transport(
             is_jsonrpc_error = r.status_code in (400, 422) and (
                 is_jsonrpc_body
                 or "method" in r.text
-                or "error" in r.text.lower()
             )
             # 200 with JSON or SSE body; 202 Accepted (Streamable HTTP)
             if (
@@ -379,4 +572,10 @@ def detect_transport(
                 pass
 
     client.close()
+
+    # Fallback: try custom tool-server detection (non-MCP /execute APIs)
+    tool_session = _detect_tool_server(base, hint, connect_timeout, auth_token)
+    if tool_session:
+        return tool_session
+
     return None

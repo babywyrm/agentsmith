@@ -146,6 +146,25 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip active probing during K8s discovery (use port matching only)",
     )
+    p.add_argument(
+        "--k8s-discovery-workers",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Concurrent probes during K8s MCP discovery (default: 10). Use higher for clusters with many services.",
+    )
+    p.add_argument(
+        "--k8s-max-endpoints",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Cap number of MCP endpoints to scan (default: no limit). Useful for large clusters.",
+    )
+    p.add_argument(
+        "--k8s-discover-only",
+        action="store_true",
+        help="Run K8s discovery and print endpoint list only; skip MCP scanning. Use with --json to export URLs.",
+    )
     return p.parse_args(args)
 
 

@@ -86,14 +86,45 @@ def main():
         if os.path.exists(sa_token_path):
             with open(sa_token_path) as _f:
                 _token = _f.read().strip()
-            fingerprint_services(args.k8s_namespace, _token, console=console)
+            fingerprint_services(
+                args.k8s_namespace,
+                _token,
+                fingerprint_workers=getattr(args, "k8s_discovery_workers", 10),
+                console=console,
+            )
 
     if args.k8s_discover:
         discovered = discover_services(
             namespaces=args.k8s_discover_namespaces,
             probe=not args.k8s_no_probe,
+            discovery_workers=getattr(args, "k8s_discovery_workers", 10),
+            max_endpoints=getattr(args, "k8s_max_endpoints", None),
             console=console,
         )
+        if args.k8s_discover_only:
+            from rich.table import Table
+            table = Table(title="Discovered MCP Endpoints")
+            table.add_column("Namespace", style="dim")
+            table.add_column("Service", style="cyan")
+            table.add_column("URL", style="green")
+            table.add_column("Source", style="yellow")
+            for ep in discovered:
+                table.add_row(ep.namespace, ep.service_name, ep.url, ep.source)
+            console.print(table)
+            console.print(f"\n[bold]Total: {len(discovered)} endpoint(s)[/bold]")
+            if args.json_out:
+                import json
+                report = {
+                    "discovered": [
+                        {"url": ep.url, "service": ep.service_name, "namespace": ep.namespace, "source": ep.source}
+                        for ep in discovered
+                    ],
+                    "count": len(discovered),
+                }
+                from pathlib import Path
+                Path(args.json_out).write_text(json.dumps(report, indent=2))
+                console.print(f"[green]JSON written to {args.json_out}[/green]")
+            sys.exit(0)
         for ep in discovered:
             if ep.url not in urls:
                 urls.append(ep.url)

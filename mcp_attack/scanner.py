@@ -17,7 +17,7 @@ from rich.progress import (
 )
 
 from mcp_attack.core.models import TargetResult
-from mcp_attack.core.session import detect_transport
+from mcp_attack.core.session import detect_transport, ToolServerSession
 from mcp_attack.core.enumerator import enumerate_server
 from mcp_attack.checks import run_all_checks
 
@@ -70,11 +70,12 @@ def scan_target(
         result.timings["total"] = time.time() - t_start
         return result
 
-    transport_label = (
-        "SSE"
-        if hasattr(session, "sse_url") and session.sse_url
-        else "HTTP"
-    )
+    if isinstance(session, ToolServerSession):
+        transport_label = "ToolServer"
+    elif hasattr(session, "sse_url") and session.sse_url:
+        transport_label = "SSE"
+    else:
+        transport_label = "HTTP"
     result.transport = transport_label
     console.print(
         f"  [green]✓[/green] Transport={transport_label}"

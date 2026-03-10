@@ -223,6 +223,9 @@ Kubernetes:
   --k8s-discover              Auto-discover MCP targets via K8s service discovery
   --k8s-discover-namespaces   Namespaces to scan for MCP services
   --k8s-no-probe              Skip active probing during discovery (port match only)
+  --k8s-discovery-workers N   Concurrent MCP probes during discovery (default: 10)
+  --k8s-max-endpoints N       Cap number of MCP endpoints to scan (no limit by default)
+  --k8s-discover-only         List discovered endpoints only; skip MCP scanning
 ```
 
 ### Scan Modes
@@ -304,6 +307,20 @@ python3 -m pytest mcp_attack/tests/ -v
 
 Deploy mcp-audit as a K8s Job to scan cluster-internal MCP services and
 audit the Kubernetes posture from inside.
+
+### Clusters with many MCPs
+
+When a cluster has many services (dozens or hundreds of potential MCP endpoints):
+
+- **Parallel discovery** — MCP probes run with `--k8s-discovery-workers` (default 10).
+  Increase for faster discovery: `--k8s-discovery-workers 20`.
+- **Cap endpoints** — Limit how many MCPs are scanned: `--k8s-max-endpoints 50`.
+  Annotation-sourced endpoints are kept first; then probed; then port-match.
+- **Discover-only triage** — List endpoints without running full MCP scans:
+  `mcp-attack --k8s-discover --k8s-discover-only --json endpoints.json`
+  to export a URL list for triage or splitting across jobs.
+- **Service fingerprinting** — Uses the same worker count for parallel HTTP
+  probes when enumerating frameworks and exposed actuator/debug paths.
 
 ### Quick deploy
 

@@ -63,6 +63,18 @@ def test_cli_k8s_discover_namespaces():
     assert args.k8s_no_probe is True
 
 
+def test_cli_k8s_many_mcp_opts():
+    args = parse_args([
+        "--k8s-discover",
+        "--k8s-discovery-workers", "20",
+        "--k8s-max-endpoints", "50",
+        "--k8s-discover-only",
+    ])
+    assert args.k8s_discovery_workers == 20
+    assert args.k8s_max_endpoints == 50
+    assert args.k8s_discover_only is True
+
+
 class TestPodSecurityChecks:
     def setup_method(self):
         GLOBAL_K8S_FINDINGS.clear()

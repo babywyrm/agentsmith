@@ -3,9 +3,11 @@
 Probes cluster services to identify frameworks, exposed debug endpoints,
 and unauthenticated admin interfaces. Complements MCP-specific discovery
 by mapping the broader internal attack surface.
+
+Supports parallel probing for clusters with many services.
 """
 
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 from mcp_attack.core.models import Finding
@@ -86,97 +88,133 @@ def _detect_framework(headers: dict, body: str) -> str:
     return ""
 
 
+def _fingerprint_one_service(
+    name: str,
+    namespace: str,
+    port: int,
+    base_url: str,
+) -> tuple[ServiceFingerprint, list[Finding]]:
+    """Fingerprint a single service:port. Returns (fp, findings). Thread-safe."""
+    dns = f"{name}.{namespace}"
+    status, headers, body = _http_probe(base_url)
+    if status == 0:
+        return (ServiceFingerprint(service_name=name, namespace=namespace, port=port), [])
+
+    fp = ServiceFingerprint(service_name=name, namespace=namespace, port=port)
+    fp.framework = _detect_framework(headers, body)
+
+    sensitive_paths = _ACTUATOR_PATHS + _DEBUG_PATHS
+    for path in sensitive_paths:
+        url = f"{base_url}{path}"
+        s, h, b = _http_probe(url, timeout=2.0)
+        if s in (200, 301, 302) and len(b) > 10:
+            fp.exposed_paths.append(path)
+
+    findings: list[Finding] = []
+    if fp.exposed_paths:
+        actuator_exposed = [p for p in fp.exposed_paths if "actuator" in p]
+        debug_exposed = [p for p in fp.exposed_paths if p not in actuator_exposed]
+
+        if actuator_exposed:
+            sev = "HIGH" if any(p in ("/actuator/env", "/actuator/configprops") for p in actuator_exposed) else "MEDIUM"
+            f = Finding(
+                target="k8s", check="service_fingerprint", severity=sev,
+                title=f"Spring Actuator exposed on {dns}:{port}",
+                detail=f"Paths: {', '.join(actuator_exposed[:8])}",
+            )
+            fp.findings.append(f)
+            findings.append(f)
+
+        if any(p in ("/debug/pprof", "/debug/vars") for p in debug_exposed):
+            f = Finding(
+                target="k8s", check="service_fingerprint", severity="MEDIUM",
+                title=f"Debug profiling endpoint on {dns}:{port}",
+                detail=f"Paths: {', '.join(p for p in debug_exposed if 'debug' in p)}",
+            )
+            fp.findings.append(f)
+            findings.append(f)
+
+        if any(p in ("/swagger-ui.html", "/swagger-ui/", "/api-docs",
+                     "/openapi.json", "/graphiql") for p in debug_exposed):
+            f = Finding(
+                target="k8s", check="service_fingerprint", severity="LOW",
+                title=f"API documentation exposed on {dns}:{port}",
+                detail=f"Paths: {', '.join(p for p in debug_exposed if any(s in p for s in ('swagger', 'api-doc', 'openapi', 'graphi')))}",
+            )
+            fp.findings.append(f)
+            findings.append(f)
+
+    return (fp, findings)
+
+
 def fingerprint_services(
     namespace: str,
     token: str,
+    fingerprint_workers: int = 10,
     console=None,
 ) -> list[ServiceFingerprint]:
-    """Fingerprint all services in a namespace for frameworks and exposed endpoints."""
+    """Fingerprint all services in a namespace for frameworks and exposed endpoints.
+
+    Args:
+        namespace: Namespace to scan.
+        token: K8s API token.
+        fingerprint_workers: Max concurrent service probes (for many-service clusters).
+        console: Rich console for output (optional).
+    """
     from mcp_attack.k8s.scanner import _k8s_get, GLOBAL_K8S_FINDINGS
 
     svc_data = _k8s_get(f"/api/v1/namespaces/{namespace}/services", token)
     if not svc_data:
         return []
 
-    results: list[ServiceFingerprint] = []
-
-    if console:
-        console.print(f"\n[bold]── Service Fingerprinting (ns={namespace}) ──[/bold]")
-
+    candidates: list[tuple[str, str, int, str]] = []
     for svc in svc_data.get("items", []):
         name = svc.get("metadata", {}).get("name", "")
         spec = svc.get("spec", {})
         cluster_ip = spec.get("clusterIP", "")
         if not cluster_ip or cluster_ip == "None":
             continue
-
         for sp in spec.get("ports", []):
             port = sp.get("port", 0)
             if not port:
                 continue
-
             dns = f"{name}.{namespace}"
             base_url = f"http://{dns}:{port}"
+            candidates.append((name, namespace, port, base_url))
 
-            status, headers, body = _http_probe(base_url)
-            if status == 0:
-                continue
+    if not candidates:
+        return []
 
-            fp = ServiceFingerprint(
-                service_name=name, namespace=namespace, port=port,
-            )
+    if console:
+        console.print(f"\n[bold]── Service Fingerprinting (ns={namespace}) ──[/bold]")
+        if fingerprint_workers > 1:
+            console.print(f"  [dim]Probing {len(candidates)} service(s) with {fingerprint_workers} workers[/dim]")
 
-            fp.framework = _detect_framework(headers, body)
-            if fp.framework and console:
-                console.print(f"  [cyan]•[/] {dns}:{port} → {fp.framework}")
-
-            sensitive_paths = _ACTUATOR_PATHS + _DEBUG_PATHS
-            for path in sensitive_paths:
-                url = f"{base_url}{path}"
-                s, h, b = _http_probe(url, timeout=2.0)
-                if s in (200, 301, 302) and len(b) > 10:
-                    fp.exposed_paths.append(path)
-
-            if fp.exposed_paths:
-                actuator_exposed = [p for p in fp.exposed_paths if "actuator" in p]
-                debug_exposed = [p for p in fp.exposed_paths if p not in actuator_exposed]
-
-                if actuator_exposed:
-                    sev = "HIGH" if any(p in ("/actuator/env", "/actuator/configprops") for p in actuator_exposed) else "MEDIUM"
-                    finding = Finding(
-                        target="k8s", check="service_fingerprint", severity=sev,
-                        title=f"Spring Actuator exposed on {dns}:{port}",
-                        detail=f"Paths: {', '.join(actuator_exposed[:8])}",
-                    )
-                    fp.findings.append(finding)
-                    GLOBAL_K8S_FINDINGS.append(finding)
-
-                if any(p in ("/debug/pprof", "/debug/vars") for p in debug_exposed):
-                    finding = Finding(
-                        target="k8s", check="service_fingerprint", severity="MEDIUM",
-                        title=f"Debug profiling endpoint on {dns}:{port}",
-                        detail=f"Paths: {', '.join(p for p in debug_exposed if 'debug' in p)}",
-                    )
-                    fp.findings.append(finding)
-                    GLOBAL_K8S_FINDINGS.append(finding)
-
-                if any(p in ("/swagger-ui.html", "/swagger-ui/", "/api-docs",
-                             "/openapi.json", "/graphiql") for p in debug_exposed):
-                    finding = Finding(
-                        target="k8s", check="service_fingerprint", severity="LOW",
-                        title=f"API documentation exposed on {dns}:{port}",
-                        detail=f"Paths: {', '.join(p for p in debug_exposed if any(s in p for s in ('swagger', 'api-doc', 'openapi', 'graphi')))}",
-                    )
-                    fp.findings.append(finding)
-                    GLOBAL_K8S_FINDINGS.append(finding)
-
+    results: list[ServiceFingerprint] = []
+    workers = min(fingerprint_workers, len(candidates))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {
+            ex.submit(_fingerprint_one_service, name, ns, port, base_url): (name, ns, port)
+            for (name, ns, port, base_url) in candidates
+        }
+        for fut in as_completed(futures):
+            name, ns, port = futures[fut]
+            try:
+                fp, findings = fut.result()
+                GLOBAL_K8S_FINDINGS.extend(findings)
+                if fp.framework or fp.exposed_paths:
+                    results.append(fp)
+                    if console:
+                        dns = f"{name}.{ns}"
+                        if fp.framework:
+                            console.print(f"  [cyan]•[/] {dns}:{port} → {fp.framework}")
+                        for f in fp.findings:
+                            from mcp_attack.core.constants import SEV_COLOR
+                            color = SEV_COLOR.get(f.severity, "dim")
+                            console.print(f"    [{color}]{f.severity}[/] {f.title}")
+            except Exception:
                 if console:
-                    for f in fp.findings:
-                        from mcp_attack.core.constants import SEV_COLOR
-                        color = SEV_COLOR.get(f.severity, "dim")
-                        console.print(f"    [{color}]{f.severity}[/] {f.title}")
-
-            results.append(fp)
+                    console.print(f"  [dim]  {name}.{ns}:{port} -- fingerprint failed[/dim]")
 
     if console:
         console.print(f"  [bold]Fingerprinted {len(results)} service(s)[/bold]")
