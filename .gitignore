@@ -99,8 +99,6 @@ coverage.out
 # -----------------------------------------------------------------------------
 .vscode/
 .idea/
-.cursor/
-!.cursor/mcp.json
 *.swp
 *.swo
 *.swn
