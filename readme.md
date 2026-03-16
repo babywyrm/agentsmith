@@ -18,6 +18,7 @@
 
 ## What's New
 
+- **Cursor Skills**: 6 built-in skills that teach Cursor's AI agent how to use Agent Smith — just ask naturally (e.g. "scan this app for vulnerabilities") and the agent picks the right mode, preset, and flags. See `.cursor/skills/`.
 - **AI Prioritization**: Automatically selects top N most relevant files (saves time & API costs)
 - **Payload Generation**: Creates Red/Blue team payloads for vulnerability verification
 - **Code Annotations**: Shows vulnerable code with inline fixes and recommendations

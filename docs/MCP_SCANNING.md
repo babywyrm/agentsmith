@@ -1,5 +1,12 @@
 # MCP Server Security Scanning Guide
 
+> **Note:** The MCP scanning module (`mcp_attack/`) is being superseded by
+> [**mcpvenom**](https://github.com/babywyrm/mcpvenom) — a standalone tool
+> with 13/14 MCP threat taxonomy coverage, Claude AI analysis, OIDC auth,
+> and a full DVMCP walkthrough. The `scan_mcp` MCP tool will continue to
+> work via the Agent Smith MCP server, but for the latest checks and features,
+> use mcpvenom directly.
+
 Agent Smith includes `scan_mcp` — a security scanner purpose-built for auditing
 [Model Context Protocol](https://modelcontextprotocol.io/) servers. It connects
 to any MCP server, enumerates its entire attack surface, and runs 14 security

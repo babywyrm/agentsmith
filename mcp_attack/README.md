@@ -1,5 +1,19 @@
 # mcp_attack — MCP Red Teaming Scanner
 
+> **Deprecation Notice:** This module is being superseded by
+> [**mcpvenom**](https://github.com/babywyrm/mcpvenom), a standalone project
+> with expanded check coverage (13/14 MCP threat taxonomy IDs), Claude AI
+> analysis, OIDC auth, verbose mode, and a full DVMCP walkthrough.
+>
+> `mcp_attack` will remain here for backward compatibility but new features
+> and checks are being developed in mcpvenom. A future release will replace
+> this directory with a git submodule pointing to mcpvenom.
+>
+> **Migration:** `pip install mcpvenom` or clone
+> [github.com/babywyrm/mcpvenom](https://github.com/babywyrm/mcpvenom)
+
+---
+
 Standalone MCP security scanner for red teaming and auditing Model Context
 Protocol servers. Combines **static metadata analysis** with **active behavioral
 probing** — it connects to MCP servers, enumerates tools/resources/prompts,

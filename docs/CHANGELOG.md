@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Cursor Skills** (`.cursor/skills/`): 6 project-level skills that teach the Cursor agent how to use Agent Smith effectively:
+  - `agentsmith-scan` — Pick the right mode, preset, and flags for any target
+  - `agentsmith-profiles` — Choose and combine AI profiles (owasp, ctf, springboot, flask, etc.)
+  - `agentsmith-interpret` — Triage findings by severity, understand attack chains
+  - `agentsmith-extend-rules` — Add new static analysis rules to the JSON rule engine
+  - `agentsmith-mcp-server` — Start, configure, and use the MCP server from Cursor
+  - `agentsmith-ctf` — Run CTF mode for Capture The Flag challenges
+
 - **Hybrid API cache**: `orchestrator.py` now uses `ReviewContextManager` for transparent API response caching across all 5 call sites (prioritization, analysis, threat modeling, payloads, annotations). Repeat runs skip API calls and use cached responses. New flags: `--cache-dir`, `--no-cache`, `--cache-in-repo`, `--cache-info`, `--cache-clear`.
 - **Leveled-up prompts**: `attacker`, `compliance`, `modern`, `code_review`, and `performance` profiles upgraded from ~40-55 lines to ~80+ lines each with structured analysis frameworks, CWE references, severity guidelines, false positive checks, and prioritization rules.
 - **Modular prompt system**: `prompts/base/` (shared preamble + output schema) and `prompts/profiles/` (per-profile sections) for composable multi-profile prompts via `lib/prompt_composer.py`.
