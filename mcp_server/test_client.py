@@ -1232,6 +1232,7 @@ async def mode_interact(url: str, repo_path: str | None = None):
             "help", "quit", "exit", "q", "scan", "summary", "findings",
             "annotations", "payloads", "everything", "verbose", "repo",
             "tools", "list_presets", "last", "status", "state", "dvmcp",
+            "loot",
         )
 
         DVMCP_CHALLENGES = [
@@ -1287,6 +1288,7 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 print(f"    last              Show last result (raw JSON)")
                 print(f"    status            Session config")
                 print(f"    dvmcp             Scan all 10 DVMCP challenges")
+                print(f"    loot <path>       Loot scan: secrets, creds, quick RCE (preset=loot)")
                 print(f"    quit              Exit")
                 print()
                 print(f"  {c('PRIORITIZE_TOP vs TOP_N', BOLD)}")
@@ -1324,6 +1326,10 @@ async def mode_interact(url: str, repo_path: str | None = None):
                 print(f"    {c('Framework (tune prioritize_top for repo size)', DIM)}")
                 print(f'    scan_hybrid profile=springboot prioritize_top=6 top_n=5 question="find actuator exposure" generate_payloads=true annotate_code=true')
                 print(f'    scan_hybrid profile=flask prioritize_top=5 top_n=5 question="find SSTI" generate_payloads=true annotate_code=true')
+                print()
+                print(f"    {c('Loot mode (secrets, creds, quick wins)', DIM)}")
+                print(f'    loot /path/to/repo')
+                print(f'    scan_hybrid preset=loot')
                 print()
                 print(f"    {c('MCP server scanning', DIM)}")
                 print(f'    scan_mcp 9001')
@@ -1594,6 +1600,39 @@ async def mode_interact(url: str, repo_path: str | None = None):
                             print(_colorize_json_line(ln))
                 else:
                     print(f"  {c('No previous result', DIM)}")
+                print()
+                continue
+
+            if line.startswith("loot"):
+                if "scan_hybrid" not in tools:
+                    print(f"  {c('scan_hybrid not available', RED)}")
+                    print()
+                    continue
+                loot_parts = line.split(None, 1)
+                loot_path = loot_parts[1].strip() if len(loot_parts) > 1 else default_repo
+                if not loot_path:
+                    print(f"  {c('Usage:', BOLD)} loot /path/to/repo")
+                    print(f"  Or set default: repo /path/to/repo")
+                    print()
+                    continue
+                print(f"  {c('Loot scan', BOLD)} → {loot_path} [preset=loot]")
+                loot_args = {"repo_path": loot_path, "preset": "loot"}
+                spinner.start("Running loot scan...")
+                t0 = time.monotonic()
+                try:
+                    result = await session.call_tool("scan_hybrid", loot_args)
+                    elapsed_ms = (time.monotonic() - t0) * 1000
+                    spinner.stop()
+                    data = json.loads(result.content[0].text)
+                    last_result = data
+                    last_tool_name = "scan_hybrid"
+                    if "error" in data:
+                        print(f"  {c('Error', RED)}: {data['error']}")
+                    else:
+                        _print_scan_summary(data, elapsed_ms)
+                except Exception as e:
+                    spinner.stop()
+                    print(f"  {c('Error', RED)}: {e}")
                 print()
                 continue
 

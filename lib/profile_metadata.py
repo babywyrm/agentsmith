@@ -319,6 +319,57 @@ PROFILE_METADATA: Dict[str, ProfileMetadata] = {
         ),
     ),
 
+    "loot": ProfileMetadata(
+        name="loot",
+        display_name="Loot (Secrets & Quick Wins)",
+        description="Rapid triage mode for incident response and CTFs. Surfaces hardcoded credentials, API keys, static secrets, trivial RCE, auth bypasses, and exposed infrastructure. Designed for the first 10 minutes of engagement.",
+        use_cases=[
+            "Incident response triage — immediate risk assessment",
+            "CTF speed-running — fastest path to flags",
+            "Bug bounty — quick wins on new targets",
+            "Red team — initial access enumeration",
+            "Repository leak assessment — what's exposed?",
+        ],
+        focus_areas=[
+            "Hardcoded credentials and API keys",
+            "Database connection strings with passwords",
+            "Private keys and service account JSON",
+            "Default and test accounts in production",
+            "eval/exec/system with user input (trivial RCE)",
+            "Missing authentication on admin endpoints",
+            "Debug endpoints and verbose error pages",
+            "SSRF to cloud metadata (169.254.169.254)",
+            "Committed .env files and backup files",
+        ],
+        examples=[
+            "--preset loot",
+            "--profile loot --prioritize --prioritize-top 20",
+        ],
+        category="offensive",
+        prioritization_hints=PrioritizationHints(
+            file_patterns=[
+                "*.env*", "*config*", "*settings*", "*secret*",
+                "*credential*", "*auth*", "*login*", "*admin*",
+                "*password*", "*token*", "*key*", "*api*",
+                "*upload*", "*exec*", "*eval*", "*cmd*",
+                "Dockerfile*", "docker-compose*",
+                "*.yml", "*.yaml", "*.json", "*.xml", "*.ini", "*.cfg",
+            ],
+            extensions=[".env", ".py", ".js", ".ts", ".go", ".java", ".rb", ".php", ".yml", ".yaml", ".json", ".xml", ".cfg", ".ini", ".properties"],
+            focus_guidance=(
+                "LOOT MODE: Prioritize files most likely to contain secrets and quick wins. "
+                "(1) Config files (.env, settings.py, config.js, application.yml, appsettings.json), "
+                "(2) Authentication modules (login, auth, session, JWT, OAuth), "
+                "(3) Admin panels and debug routes, "
+                "(4) Infrastructure files (Dockerfile, docker-compose, CI configs), "
+                "(5) Database and ORM configuration, "
+                "(6) API route handlers with user input processing, "
+                "(7) Any file with 'secret', 'key', 'token', 'password', or 'credential' in the name. "
+                "SKIP: test files, documentation, static assets, migration scripts, generated code."
+            ),
+        ),
+    ),
+
     # ---- New framework-specific profiles ----
 
     "springboot": ProfileMetadata(

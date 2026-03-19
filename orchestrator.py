@@ -40,7 +40,7 @@ from lib.cost_tracker import CostTracker
 from lib.cost_estimator import estimate_scan_cost
 from lib.profile_metadata import list_profiles_by_category, get_all_profiles, get_prioritization_hints_for_profiles
 from lib.prompt_composer import compose_prompt, has_composed_support
-from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector
+from lib.config import get_preset, list_presets, SmartDefaults, TechStackDetector, PRESETS
 from lib.tech_detector import EnhancedTechDetector, generate_framework_aware_prioritization_question
 from lib.universal_detector import UniversalTechDetector
 from lib.taint_tracker import TaintTracker, TaintAnalyzer
@@ -1329,71 +1329,156 @@ class Orchestrator:
         
         self.console.print(f"  [dim]Full details: {self.output_path / 'tech_stack.json'}[/dim]")
     
+    def _classify_loot_type(self, f: Dict[str, Any]) -> str:
+        """Classify a finding into a loot category for grouped display."""
+        title = (f.get('title', '') or '').lower()
+        rule = (f.get('rule_name', '') or '').lower()
+        category = (f.get('category', '') or '').upper()
+        loot_type = (f.get('loot_type', '') or '').lower()
+
+        if loot_type:
+            return loot_type
+
+        cred_kw = ('password', 'credential', 'secret', 'api key', 'api_key',
+                    'apikey', 'token', 'private key', 'connection string',
+                    'aws', 'bearer', 'jwt', 'oauth')
+        rce_kw = ('command injection', 'code execution', 'rce', 'eval',
+                  'exec', 'system(', 'deserialization', 'template injection')
+        auth_kw = ('auth bypass', 'broken access', 'missing auth',
+                   'default cred', 'weak password', 'admin panel')
+        infra_kw = ('debug', 'misconfigur', 'ssrf', 'open redirect',
+                    'backup', 'exposed endpoint', '.env', 'actuator')
+
+        combined = f"{title} {rule}"
+        if any(kw in combined for kw in cred_kw) or category == 'A07':
+            return 'credential'
+        if any(kw in combined for kw in rce_kw):
+            return 'rce'
+        if any(kw in combined for kw in auth_kw):
+            return 'auth_bypass'
+        if any(kw in combined for kw in infra_kw):
+            return 'misconfig'
+        if f.get('severity', '').upper() == 'CRITICAL':
+            return 'rce'
+        return 'other'
+
     def _display_quick_wins(self, findings: List[Dict[str, Any]]) -> None:
-        """Display quick win summary highlighting most exploitable findings."""
-        # Filter for high exploitability findings
+        """Display quick win summary highlighting most exploitable findings.
+
+        When the loot profile is active, findings are grouped by type
+        (Credentials, RCE, Auth Bypass, Misconfig) for faster triage.
+        """
         exploitable = []
         for f in findings:
-            exploit_score = f.get('exploitability_score', 0)
+            exploit_score = f.get('exploitability_score', 0) or f.get('exploitation_priority', 0)
             time_to_exploit = f.get('time_to_exploit', '')
-            
-            # Consider it a quick win if:
-            # - Exploitability score >= 7, OR
-            # - Time to exploit mentions "minute" or "instant", OR
-            # - Severity is CRITICAL
+
             is_quick_win = (
                 (exploit_score and exploit_score >= 7) or
                 (time_to_exploit and ('minute' in time_to_exploit.lower() or 'instant' in time_to_exploit.lower())) or
-                (f.get('severity', '').upper() == 'CRITICAL')
+                (f.get('severity', '').upper() == 'CRITICAL') or
+                (f.get('loot_type', '') != '')
             )
-            
+
             if is_quick_win:
                 exploitable.append(f)
-        
+
         if not exploitable:
             return
-        
-        # Sort by exploitability score (highest first)
-        exploitable.sort(key=lambda x: x.get('exploitability_score', 0), reverse=True)
-        
-        # Display quick wins
+
+        exploitable.sort(key=lambda x: (x.get('exploitability_score', 0) or x.get('exploitation_priority', 0)), reverse=True)
+
+        is_loot_mode = 'loot' in self.profiles
+
+        if is_loot_mode:
+            self._display_loot_grouped(exploitable)
+        else:
+            self._display_quick_wins_flat(exploitable)
+
+    def _display_loot_grouped(self, exploitable: List[Dict[str, Any]]) -> None:
+        """Display findings grouped by loot type."""
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for f in exploitable:
+            ltype = self._classify_loot_type(f)
+            groups.setdefault(ltype, []).append(f)
+
+        group_labels = {
+            'credential': ('🔑 Credentials & Secrets', 'bold red'),
+            'rce': ('💥 Remote Code Execution', 'bold red'),
+            'auth_bypass': ('🔓 Auth Bypass', 'red'),
+            'misconfig': ('⚙️  Misconfiguration', 'yellow'),
+            'other': ('📋 Other High-Value', 'cyan'),
+        }
+
+        total = sum(len(v) for v in groups.values())
+        self.console.print(f"\n[bold magenta]🏴 Loot Report[/bold magenta] [dim]({total} high-value findings)[/dim]")
+
+        sev_colors = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan"}
+
+        for ltype in ('credential', 'rce', 'auth_bypass', 'misconfig', 'other'):
+            items = groups.get(ltype, [])
+            if not items:
+                continue
+            label, color = group_labels[ltype]
+            self.console.print(f"\n  [{color}]{label}[/{color}] [dim]({len(items)})[/dim]")
+
+            for f in items[:8]:
+                file_name = Path(f.get('file', '')).name
+                line_num = get_line_number(f)
+                title = f.get('title', 'Unknown')
+                severity = f.get('severity', 'UNKNOWN')
+                sc = sev_colors.get(severity.upper(), "white")
+                pri = f.get('exploitability_score', 0) or f.get('exploitation_priority', 0)
+                tte = f.get('time_to_exploit', '')
+                meta_parts = []
+                if pri:
+                    meta_parts.append(f"P{pri}")
+                if tte:
+                    meta_parts.append(tte)
+                meta = " ".join(meta_parts)
+                self.console.print(
+                    f"    [{sc}][{severity}][/{sc}] {title} "
+                    f"[dim]({file_name}:L{line_num})[/dim] "
+                    f"[dim]{meta}[/dim]"
+                )
+            if len(items) > 8:
+                self.console.print(f"    [dim]... +{len(items) - 8} more[/dim]")
+
+    def _display_quick_wins_flat(self, exploitable: List[Dict[str, Any]]) -> None:
+        """Original flat quick wins display."""
         self.console.print(f"\n[bold magenta]🎯 Quick Wins[/bold magenta] [dim]({len(exploitable)} highly exploitable findings)[/dim]")
         self.console.print("[dim]These findings have high exploitability scores or fast time-to-exploit:[/dim]\n")
-        
-        for i, f in enumerate(exploitable[:10], 1):  # Show top 10
+
+        for i, f in enumerate(exploitable[:10], 1):
             file_name = Path(f.get('file', '')).name
             line_num = get_line_number(f)
             title = f.get('title', 'Unknown')
             severity = f.get('severity', 'UNKNOWN')
             exploit_score = f.get('exploitability_score', '?')
             time_to_exploit = f.get('time_to_exploit', 'Unknown')
-            
-            # Color by severity
+
             sev_color = {
                 "CRITICAL": "bold red",
                 "HIGH": "red",
                 "MEDIUM": "yellow",
                 "LOW": "cyan"
             }.get(severity.upper(), "white")
-            
-            # Format exploit info
+
             exploit_info = f"⚡{exploit_score}/10" if exploit_score != '?' else ""
             time_info = f"🕐{time_to_exploit}" if time_to_exploit != 'Unknown' else ""
             meta = " ".join([exploit_info, time_info]).strip()
-            
+
             self.console.print(
                 f"  [{sev_color}]{i}.[/{sev_color}] [{sev_color}]{title}[/{sev_color}] "
                 f"[dim]({file_name}:L{line_num})[/dim] "
                 f"[dim]{meta}[/dim]"
             )
-            
-            # Show attack scenario if available
+
             attack_scenario = f.get('attack_scenario', '')
             if attack_scenario and isinstance(attack_scenario, str):
-                # Truncate long scenarios
                 scenario_display = attack_scenario[:100] + "..." if len(attack_scenario) > 100 else attack_scenario
                 self.console.print(f"     [dim]→ {scenario_display}[/dim]")
-        
+
         if len(exploitable) > 10:
             self.console.print(f"\n[dim]... and {len(exploitable) - 10} more exploitable findings[/dim]")
 
@@ -1778,10 +1863,10 @@ def main() -> None:
     parser.add_argument("repo_path", type=Path, nargs='?', help="Path to repo to scan.")
     parser.add_argument("scanner_bin", type=Path, nargs='?', help="Path to Agent Smith scanner binary.")
     parser.add_argument("--preset", type=str.lower,
-                        choices=['mcp', 'quick', 'ctf', 'ctf-fast', 'security-audit', 'pentest', 'compliance'],
-                        help="Use a preset configuration (overrides individual flags). Available: mcp (2 files, fastest), quick, ctf, ctf-fast, security-audit, pentest, compliance. Use --list-presets to see details.")
+                        choices=sorted(PRESETS.keys()),
+                        help="Use a preset configuration (overrides individual flags). Use --list-presets to see details.")
     parser.add_argument("--profile", type=str.lower, default="owasp",
-                        help="Comma-separated list of AI profiles. Available: owasp, ctf, code_review, modern, soc2, pci, compliance, performance, attacker, springboot, cpp_conan, flask (e.g., 'owasp,ctf' or 'springboot,owasp').")
+                        help="Comma-separated list of AI profiles. Use --list-profiles to see all available.")
     parser.add_argument("--static-rules", type=str,
                         help="Comma-separated paths to static rule files for Agent Smith.")
     parser.add_argument("--severity", type=str.upper,

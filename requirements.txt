@@ -1,17 +1,10 @@
-# Agent Smith Dependencies
-# Install with: pip install -r requirements.txt
+# Agent Smith Dependencies (pip fallback)
+# Source of truth: pyproject.toml
+# Preferred install: uv sync --all-extras
+# Fallback install:  pip install -e ".[mcp-server,dev]"
 
-# Core AI dependencies
 anthropic>=0.18.0
-
-# Rich console output
 rich>=13.0.0
-
-# Type checking support
 typing-inspection>=0.1.0
-
-# Progress bars (used by runner__.py)
 tqdm>=4.65.0
-
-
 

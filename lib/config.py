@@ -166,7 +166,24 @@ PRESETS: Dict[str, ScanPreset] = {
         dedupe_strategy='merge',
         top_n=20,
         export_formats=['json', 'csv', 'html']
-    )
+    ),
+
+    'loot': ScanPreset(
+        name='loot',
+        description='Loot mode: surface secrets, creds, quick RCE, auth bypass (CTF/IR triage)',
+        profiles=['loot'],
+        prioritize=True,
+        prioritize_top=20,
+        generate_payloads=True,
+        annotate_code=False,
+        deduplicate=True,
+        dedupe_threshold=0.7,
+        dedupe_strategy='keep_highest_severity',
+        top_n=10,
+        export_formats=['json', 'markdown'],
+        show_quick_wins=True,
+        show_chains=False,
+    ),
 }
 
 

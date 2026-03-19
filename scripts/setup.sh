@@ -105,43 +105,51 @@ if [ "$PYTHON_ONLY" = false ]; then
 fi
 
 # ============================================================
-# Step 2: Python Virtual Environment
+# Step 2: Python Environment (uv preferred, pip fallback)
 # ============================================================
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Step 2: Python Environment"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Check Python version
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Error: python3 not found. Please install Python 3.8 or higher."
+    echo "❌ Error: python3 not found. Please install Python 3.11 or higher."
     exit 1
 fi
 
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
 echo "✓ Found Python $PYTHON_VERSION"
 
-# Create virtual environment if it doesn't exist
-if [ ! -d ".venv" ]; then
-    echo "  Creating virtual environment..."
-    python3 -m venv .venv
-    echo "✓ Virtual environment created"
+if command -v uv &> /dev/null; then
+    UV_VERSION=$(uv --version 2>/dev/null)
+    echo "✓ Found $UV_VERSION (using uv as package manager)"
+
+    echo "  Syncing environment..."
+    uv sync --all-extras --quiet
+    echo "✓ Environment synced (uv)"
 else
-    echo "✓ Virtual environment already exists"
+    echo "⚠️  uv not found — falling back to pip"
+    echo "   Install uv for faster setup: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo ""
+
+    if [ ! -d ".venv" ]; then
+        echo "  Creating virtual environment..."
+        python3 -m venv .venv
+        echo "✓ Virtual environment created"
+    else
+        echo "✓ Virtual environment already exists"
+    fi
+
+    source .venv/bin/activate
+
+    echo "  Upgrading pip..."
+    pip install --upgrade pip --quiet
+
+    echo "  Installing dependencies..."
+    pip install -e ".[mcp-server,dev]" --quiet
+
+    echo "✓ Python dependencies installed (pip)"
 fi
-
-# Activate virtual environment
-source .venv/bin/activate
-
-# Upgrade pip
-echo "  Upgrading pip..."
-pip install --upgrade pip --quiet
-
-# Install dependencies
-echo "  Installing dependencies..."
-pip install -r requirements.txt --quiet
-
-echo "✓ Python dependencies installed"
 echo ""
 
 # ============================================================
@@ -183,7 +191,7 @@ echo ""
 echo "✅ Setup complete!"
 echo ""
 echo "Activate the environment:"
-echo "  source scripts/activate.sh"
+echo "  source scripts/activate.sh        # or: source .venv/bin/activate"
 echo ""
 echo "Quick start:"
 echo "  # Fast static scan (no API key needed)"
