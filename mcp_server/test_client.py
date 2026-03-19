@@ -1617,19 +1617,32 @@ async def mode_interact(url: str, repo_path: str | None = None):
                     continue
                 print(f"  {c('Loot scan', BOLD)} → {loot_path} [preset=loot]")
                 loot_args = {"repo_path": loot_path, "preset": "loot"}
-                spinner.start("Running loot scan...")
+                spinner.start("Running loot scan (this may take a few minutes)...")
                 t0 = time.monotonic()
                 try:
                     result = await session.call_tool("scan_hybrid", loot_args)
                     elapsed_ms = (time.monotonic() - t0) * 1000
                     spinner.stop()
-                    data = json.loads(result.content[0].text)
-                    last_result = data
-                    last_tool_name = "scan_hybrid"
-                    if "error" in data:
-                        print(f"  {c('Error', RED)}: {data['error']}")
+                    raw = result.content[0].text if result.content else ""
+                    if not raw:
+                        print(f"  {c('Error', RED)}: Empty response from scan_hybrid.")
+                        print(f"  Check server log for details (tail .mcp_server.log)")
                     else:
-                        _print_scan_summary(data, elapsed_ms)
+                        data = json.loads(raw)
+                        last_result = data
+                        last_tool_name = "scan_hybrid"
+                        if "error" in data:
+                            print(f"  {c('Error', RED)}: {data['error']}")
+                            if "stderr" in data:
+                                for line in data["stderr"].strip().splitlines()[-5:]:
+                                    print(f"    {c(line.strip(), DIM)}")
+                        else:
+                            _print_scan_summary(data, elapsed_ms)
+                except json.JSONDecodeError:
+                    spinner.stop()
+                    print(f"  {c('Error', RED)}: Server returned non-JSON response")
+                    print(f"  Raw: {raw[:300] if raw else '(empty)'}")
+                    print(f"  Check: is CLAUDE_API_KEY set in the server's environment?")
                 except Exception as e:
                     spinner.stop()
                     print(f"  {c('Error', RED)}: {e}")

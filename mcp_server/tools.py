@@ -227,13 +227,13 @@ TOOL_DEFINITIONS = [
                 },
                 "profile": {
                     "type": "string",
-                    "description": "AI analysis profile (default: owasp). Options: owasp, ctf, code_review, modern, attacker, soc2, pci, compliance, performance, springboot, cpp_conan, flask",
+                    "description": "AI analysis profile (default: owasp). Options: owasp, ctf, code_review, modern, attacker, soc2, pci, compliance, performance, springboot, cpp_conan, flask, loot",
                     "default": "owasp",
                 },
                 "preset": {
                     "type": "string",
-                    "enum": ["mcp", "quick", "ctf", "ctf-fast", "security-audit", "pentest", "compliance"],
-                    "description": "Use a preset. 'mcp' = 2 files, ~1 min; 'quick' = 10 files",
+                    "enum": ["mcp", "quick", "ctf", "ctf-fast", "security-audit", "pentest", "compliance", "loot"],
+                    "description": "Use a preset. 'mcp' = 2 files, ~1 min; 'loot' = secrets/creds/quick RCE",
                 },
                 "prioritize_top": {
                     "type": "integer",

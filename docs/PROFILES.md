@@ -133,6 +133,43 @@ This command displays:
 
 **Note:** The `attacker` profile is automatically added when using `--threat-model` flag.
 
+#### `loot`
+
+**Focus:** Secrets, credentials, and quick wins for rapid triage
+
+**Description:** Surfaces the big hitters in the first 10 minutes: hardcoded credentials, API keys, static secrets, trivial RCE, auth bypasses, and exposed infrastructure. Designed for CTF speed-running, incident response triage, bug bounty first looks, and red team initial access.
+
+**Use Cases:**
+- Incident response — immediate risk assessment
+- CTF speed-running — fastest path to flags
+- Bug bounty — quick wins on new targets
+- Red team — initial access enumeration
+- Repository leak assessment — what's exposed?
+
+**Focus Areas:**
+- Hardcoded credentials and API keys
+- Database connection strings with passwords
+- Private keys and service account JSON
+- Default/test accounts in production
+- eval/exec/system with user input (trivial RCE)
+- Missing authentication on admin endpoints
+- Debug endpoints and verbose error pages
+- SSRF to cloud metadata (169.254.169.254)
+- Committed .env files and backup files
+
+**Examples:**
+```bash
+--preset loot
+--profile loot --prioritize --prioritize-top 20
+```
+
+**MCP shell shorthand:**
+```
+mcp> loot /path/to/repo
+```
+
+**Output:** Findings grouped by loot type (Credentials, RCE, Auth Bypass, Misconfig) with `exploitation_priority` (1–10) and `time_to_exploit` estimates.
+
 ### Code Quality Profiles
 
 #### `code_review`

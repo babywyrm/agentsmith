@@ -46,7 +46,11 @@ else
     # Ensure MCP dependencies are installed
     "$PY" -c "import mcp" 2>/dev/null || {
         echo "  Installing MCP dependencies..."
-        "$PY" -m pip install -r mcp_server/requirements.txt --quiet
+        if command -v uv >/dev/null 2>&1; then
+            uv sync --all-extras --quiet
+        else
+            "$PY" -m pip install -e ".[mcp-server]" --quiet
+        fi
         echo "  ✓ MCP dependencies installed"
     }
 fi

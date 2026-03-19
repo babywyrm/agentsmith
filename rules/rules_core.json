@@ -673,7 +673,7 @@
   },
   {
     "name": "Axios SSRF (dynamic URL)",
-    "pattern": "(?i)axios\\.(get|post|put|delete)\\s*\\(\\s*(?!\\s*['\"][^'\"]*https?://[^'\"]*['\"])",
+    "pattern": "(?i)axios\\.(get|post|put|delete)\\s*\\(\\s*[a-zA-Z_$]",
     "severity": "HIGH",
     "category": "A10",
     "description": "Potential SSRF via axios with non-literal URL (variable, template, concatenation)",
@@ -681,7 +681,7 @@
   },
   {
     "name": "Go SSRF (dynamic URL)",
-    "pattern": "(?i)http\\.Get\\s*\\(\\s*(?!\\s*['\"][^'\"]*https?://[^'\"]*['\"])",
+    "pattern": "(?i)http\\.Get\\s*\\(\\s*[a-zA-Z_]",
     "severity": "HIGH",
     "category": "A10",
     "description": "Unvalidated http.Get with non-literal URL (variable, concatenation)",
@@ -705,7 +705,7 @@
   },
   {
     "name": "Python SSRF (dynamic URL)",
-    "pattern": "requests\\.get\\s*\\(\\s*(?!\\s*['\"][^'\"]*https?://[^'\"]*['\"])",
+    "pattern": "requests\\.get\\s*\\(\\s*[a-zA-Z_]",
     "severity": "HIGH",
     "category": "A10",
     "description": "Unvalidated requests.get with non-literal URL (variable, concatenation)",

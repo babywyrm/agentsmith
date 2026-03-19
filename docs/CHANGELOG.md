@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Loot preset** (`--preset loot`): Rapid triage mode for CTF and incident response. Surfaces hardcoded credentials, API keys, trivial RCE, auth bypasses, and exposed infrastructure. AI findings grouped by loot type (Credentials, RCE, Auth Bypass, Misconfig) with exploitation priority scoring (1–10). Available via CLI (`--preset loot`), MCP shell (`loot <path>`), and `scan_hybrid preset=loot`.
+  - `prompts/loot_profile.txt` — AI prompt with 5 loot categories and `loot_type`/`exploitation_priority` fields
+  - `lib/profile_metadata.py` — Registered loot profile (category: offensive, 24 file patterns)
+  - `lib/config.py` — Loot preset (speed-optimized: 20 files, payloads, `show_quick_wins`)
+  - `orchestrator.py` — Grouped loot display in `_display_quick_wins`, dynamic preset choices
+  - `mcp_server/test_client.py` — `loot <path>` shorthand command
+
+- **UV package manager** — `scripts/setup.sh` now uses `uv sync` when available, with pip fallback. `uv.lock` tracked for reproducible installs. `.python-version` added.
+
 - **Cursor Skills** (`.cursor/skills/`): 6 project-level skills that teach the Cursor agent how to use Agent Smith effectively:
   - `agentsmith-scan` — Pick the right mode, preset, and flags for any target
   - `agentsmith-profiles` — Choose and combine AI profiles (owasp, ctf, springboot, flask, etc.)
@@ -20,6 +29,13 @@ All notable changes to this project will be documented in this file.
 - **MCP key=value parsing**: `shlex.split()` in MCP client for quoted values (`question="find SQL injection"`).
 - **MCP help overhaul**: Section headers, separators, practical examples with payloads + annotations, `prioritize_top` vs `top_n` explanation.
 - **MCP `everything` command**: Dumps summary + findings + annotations + payloads in one shot.
+
+### Fixed
+
+- **Static scanner crash** — 3 SSRF rules in `rules/rules_core.json` used `(?!` negative lookahead which Go's `regexp` doesn't support. Replaced with Go-compatible patterns. This was silently breaking all static scans (0 findings, 0 rules loaded).
+- **MCP loot preset rejected** — `scan_hybrid` tool schema had hardcoded preset enum missing `loot`. Added `loot` to enum and profile description.
+- **MCP shell loot error handling** — `loot` command now shows useful error messages instead of raw JSONDecodeError when the orchestrator fails.
+- **MCP shell script** — `scripts/run_mcp_shell.sh` now uses `uv sync` for dependency install when uv is available.
 
 ### Changed
 
